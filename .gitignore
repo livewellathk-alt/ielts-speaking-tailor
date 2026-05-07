@@ -1,0 +1,10 @@
+.pytest_cache/
+__pycache__/
+*.py[cod]
+*.egg-info/
+.coverage
+dist/
+build/
+output/
+data/question_bank.yaml
+student_questionnaire.md
