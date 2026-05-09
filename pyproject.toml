@@ -24,5 +24,8 @@ ielts-tailor = "ielts_tailor.cli:main"
 [tool.setuptools.packages.find]
 where = ["src"]
 
+[tool.setuptools.package-data]
+ielts_tailor = ["web_assets/*"]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]

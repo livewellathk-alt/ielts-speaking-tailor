@@ -16,6 +16,25 @@ The generator expects an OpenAI-compatible chat completions API. Set the environ
 
 If `ielts-tailor` is on your shell PATH, you can use it instead of `python3 -m ielts_tailor.cli`.
 
+To use the local browser interface instead of the CLI-only workflow:
+
+```bash
+python3 -m ielts_tailor.cli web --config config.yaml
+```
+
+This starts a local server at `http://127.0.0.1:8765/`. The interface is an online-test style workspace for setup, student answer inputs, generation, and editable results saved on your computer.
+
+Default answer timing is IELTS-speaking focused: Part 1 is about 15 seconds, Part 2 is 1:40-1:50, and Part 3 is about 40 seconds at 80 words per minute. Edit `generation.speaking_speed_wpm` and `generation.timing` in `config.yaml`, or override one run:
+
+```bash
+python3 -m ielts_tailor.cli generate --config config.yaml \
+  --wpm 90 \
+  --part1-seconds 18 \
+  --part2-min-seconds 105 \
+  --part2-max-seconds 115 \
+  --part3-seconds 45
+```
+
 ## Pipeline
 
 The CLI keeps intermediate artifacts explicit so large banks can be debugged and regenerated:
@@ -26,6 +45,10 @@ The CLI keeps intermediate artifacts explicit so large banks can be debugged and
 4. Build a global style guide from the student profile.
 5. Generate checkpoint samples when enabled.
 6. Generate answers, review against IELTS descriptors and local frameworks, revise once, then render Markdown and DOCX.
+
+Run `profile-questions` before generation to create a questionnaire for the student. It asks for Part 1 facts and reusable Part 2 umbrella stories grouped by theme, plus related Part 3 opinions.
+
+The web interface saves editable files under the configured output directory, including `profile_responses.yaml`, `ielts_speaking_answers.md`, and `ielts_speaking_answers.docx`.
 
 ## Quality Controls
 

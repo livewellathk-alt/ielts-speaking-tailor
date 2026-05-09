@@ -1,0 +1,133 @@
+<!doctype html>
+<html lang="zh-Hans">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>雅思口语定制器</title>
+    <link rel="stylesheet" href="/assets/styles.css" />
+  </head>
+  <body>
+    <main class="app-shell">
+      <aside class="side-rail" aria-label="测试流程">
+        <div>
+          <p class="eyebrow">IELTS Speaking</p>
+          <h1>雅思口语定制器</h1>
+        </div>
+        <nav class="rail-nav">
+          <button class="rail-item active" data-view="setup">设置</button>
+          <button class="rail-item" data-view="test">素材采集</button>
+          <button class="rail-item" data-view="results">结果编辑</button>
+        </nav>
+        <div class="status-panel">
+          <span class="status-dot" id="statusDot"></span>
+          <span id="saveStatus">正在载入</span>
+        </div>
+      </aside>
+
+      <section class="workbench">
+        <header class="topbar">
+          <div>
+            <p class="eyebrow" id="viewEyebrow">设置</p>
+            <h2 id="viewTitle">本地备考工作台</h2>
+          </div>
+          <div class="top-actions">
+            <button class="ghost-button" id="reloadButton" type="button">重新载入</button>
+            <button class="primary-button" id="generateSampleButton" type="button">生成测试样本</button>
+            <button class="primary-button" id="generateButton" type="button">全量生成</button>
+          </div>
+        </header>
+
+        <section class="view active" id="setupView">
+          <div class="summary-grid">
+            <article class="summary-tile">
+              <span>Part 1</span>
+              <strong id="part1Target">--</strong>
+            </article>
+            <article class="summary-tile">
+              <span>Part 2</span>
+              <strong id="part2Target">--</strong>
+            </article>
+            <article class="summary-tile">
+              <span>Part 3</span>
+              <strong id="part3Target">--</strong>
+            </article>
+          </div>
+
+          <div class="plain-panel">
+            <div class="result-header">
+              <div>
+                <h3>素材覆盖度</h3>
+                <p id="coverageSummary">正在评估资料是否足够生成答案。</p>
+              </div>
+              <strong class="coverage-score" id="coverageScore">--%</strong>
+            </div>
+            <div class="progress-track"><div id="coverageBar"></div></div>
+            <div class="coverage-grid" id="themeCoverage"></div>
+            <ul class="followup-list" id="followupList"></ul>
+          </div>
+
+          <div class="plain-panel">
+            <div class="result-header">
+              <div>
+                <h3>网页设置</h3>
+                <p>普通用户可以直接在这里调整，不需要修改代码。</p>
+              </div>
+              <button class="primary-button" id="saveSettingsButton" type="button">保存设置</button>
+            </div>
+            <div class="settings-grid">
+              <label>目标分数<input id="targetBandInput" type="number" min="5" max="9" /></label>
+              <label>语速 WPM<input id="wpmInput" type="number" min="50" max="180" /></label>
+              <label>Part 1 秒数<input id="part1SecondsInput" type="number" min="8" max="40" /></label>
+              <label>Part 2 最短秒数<input id="part2MinSecondsInput" type="number" min="60" max="150" /></label>
+              <label>Part 2 最长秒数<input id="part2MaxSecondsInput" type="number" min="70" max="180" /></label>
+              <label>Part 3 秒数<input id="part3SecondsInput" type="number" min="20" max="90" /></label>
+              <label>API 地址<input id="baseUrlInput" type="text" /></label>
+              <label>API Key 环境变量<input id="apiKeyEnvInput" type="text" /></label>
+              <label>生成模型<input id="modelInput" type="text" /></label>
+              <label>审核模型<input id="reviewerModelInput" type="text" /></label>
+            </div>
+          </div>
+
+          <div class="plain-panel">
+            <h3>本地文件</h3>
+            <dl class="path-list" id="pathList"></dl>
+          </div>
+          <div class="plain-panel">
+            <h3>学生资料</h3>
+            <div class="profile-grid" id="profileGrid"></div>
+          </div>
+        </section>
+
+        <section class="view" id="testView">
+          <div class="test-frame">
+            <div class="test-meta">
+              <span id="questionPart">题型</span>
+              <span id="questionCounter">0 / 0</span>
+            </div>
+            <h3 id="questionText">正在载入问题</h3>
+            <p class="prompt-note" id="questionPrompt"></p>
+            <div class="answer-fields" id="answerFields"></div>
+            <div class="test-actions">
+              <button class="ghost-button" id="previousQuestion" type="button">上一题</button>
+              <button class="primary-button" id="nextQuestion" type="button">下一题</button>
+            </div>
+          </div>
+        </section>
+
+        <section class="view" id="resultsView">
+          <div class="plain-panel result-panel">
+            <div class="result-header">
+              <div>
+                <h3>可编辑答案</h3>
+                <p>修改后会保存到你的电脑本地输出文件夹。</p>
+              </div>
+              <button class="primary-button" id="saveResultButton" type="button">保存结果</button>
+            </div>
+            <textarea id="resultMarkdown" spellcheck="false" placeholder="测试样本或完整答案会显示在这里。你可以直接修改，然后保存到本地。"></textarea>
+          </div>
+        </section>
+      </section>
+    </main>
+    <script src="/assets/app.js"></script>
+  </body>
+</html>

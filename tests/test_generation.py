@@ -2,7 +2,7 @@ from pathlib import Path
 
 import yaml
 
-from ielts_tailor.generation import GenerationConfig, GenerationPipeline
+from ielts_tailor.generation import GenerationConfig, GenerationPipeline, TimingConfig, word_targets_for
 
 
 class FakeLLMClient:
@@ -112,7 +112,7 @@ def test_generation_pipeline_creates_style_checkpoint_review_revision_and_cache(
     config = GenerationConfig(
         target_band=7,
         answer_length="medium",
-        speaking_speed_wpm=120,
+        speaking_speed_wpm=80,
         checkpoint_mode=True,
         output_dir=tmp_path,
     )
@@ -122,6 +122,10 @@ def test_generation_pipeline_creates_style_checkpoint_review_revision_and_cache(
 
     assert (tmp_path / "cache" / "style_guide.yaml").exists()
     assert (tmp_path / "checkpoints" / "samples.yaml").exists()
+    assert result["word_targets"]["part1"]["words"] == 20
+    assert result["word_targets"]["part2"]["min_words"] == 133
+    assert result["word_targets"]["part2"]["max_words"] == 147
+    assert result["word_targets"]["part3"]["words"] == 53
     assert result["review"]["passed"] is False
     assert result["answers"]["part2_blocks"][0]["part3"][0]["framework"] == "AREA-Alternative"
     assert result["answers"]["part2_blocks"][0]["part3"][0]["answer_en"].startswith("Answer:")
@@ -136,6 +140,46 @@ def test_generation_pipeline_creates_style_checkpoint_review_revision_and_cache(
 
     style = yaml.safe_load((tmp_path / "cache" / "style_guide.yaml").read_text())
     assert style["student_voice"].startswith("clear")
+
+
+def test_word_targets_use_speaking_speed_and_timing_requirements():
+    targets = word_targets_for(
+        80,
+        TimingConfig(
+            part1_seconds=15,
+            part2_min_seconds=100,
+            part2_max_seconds=110,
+            part3_seconds=40,
+        ),
+    )
+
+    assert targets == {
+        "part1": {"seconds": 15, "words": 20},
+        "part2": {"min_seconds": 100, "max_seconds": 110, "min_words": 133, "max_words": 147},
+        "part3": {"seconds": 40, "words": 53},
+    }
+
+
+def test_generation_messages_include_word_targets(tmp_path: Path):
+    client = FakeLLMClient()
+    config = GenerationConfig(
+        target_band=7,
+        answer_length="timed",
+        speaking_speed_wpm=80,
+        timing=TimingConfig(),
+        checkpoint_mode=False,
+        output_dir=tmp_path,
+    )
+
+    GenerationPipeline(client=client, config=config).run(bank=small_bank(), profile={"name": "Alex"})
+
+    message_content = client.calls[0]["messages"][1]["content"]
+    assert "word_targets:" in message_content
+    assert "part1:" in message_content
+    assert "words: 20" in message_content
+    assert "min_words: 133" in message_content
+    assert "max_words: 147" in message_content
+    assert "part3:" in message_content
 
 
 class MinimalValidClient(FakeLLMClient):

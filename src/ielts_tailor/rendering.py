@@ -15,9 +15,26 @@ def render_markdown(payload: dict[str, Any]) -> str:
         "",
         f"- Student voice: {payload.get('style_guide', {}).get('student_voice', 'not specified')}",
         "",
-        "## Umbrella Story Index",
-        "",
     ]
+    word_targets = payload.get("word_targets", {})
+    if word_targets:
+        part1 = word_targets.get("part1", {})
+        part2 = word_targets.get("part2", {})
+        part3 = word_targets.get("part3", {})
+        lines.extend(
+            [
+                "## Timing Targets",
+                "",
+                f"- Part 1: about {part1.get('seconds')} seconds / {part1.get('words')} words",
+                (
+                    f"- Part 2: {part2.get('min_seconds')}-{part2.get('max_seconds')} seconds / "
+                    f"{part2.get('min_words')}-{part2.get('max_words')} words"
+                ),
+                f"- Part 3: about {part3.get('seconds')} seconds / {part3.get('words')} words",
+                "",
+            ]
+        )
+    lines.extend(["## Umbrella Story Index", ""])
     story_map: dict[str, list[str]] = {}
     for block in answers.get("part2_blocks", []):
         story_map.setdefault(block.get("umbrella_story", "story_general"), []).append(block.get("title_zh", block.get("block_id", "")))

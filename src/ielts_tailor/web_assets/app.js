@@ -1,0 +1,381 @@
+const state = {
+  data: null,
+  questions: [],
+  index: 0,
+  saveTimer: null,
+};
+
+const views = {
+  setup: document.querySelector("#setupView"),
+  test: document.querySelector("#testView"),
+  results: document.querySelector("#resultsView"),
+};
+
+const viewTitles = {
+  setup: ["设置", "本地备考工作台"],
+  test: ["素材采集", "像正式口语考试一样逐题补充"],
+  results: ["结果编辑", "测试样本与完整答案"],
+};
+
+const themeLabels = {
+  city_travel: "城市/旅行",
+  people_relationships: "人物/关系",
+  technology_media: "科技/媒体",
+  work_study: "学习/工作",
+  rules_society: "规则/社会",
+  lifestyle_activity: "生活/活动",
+  general_experience: "通用经历",
+};
+
+document.querySelectorAll(".rail-item").forEach((button) => {
+  button.addEventListener("click", () => setView(button.dataset.view));
+});
+
+document.querySelector("#reloadButton").addEventListener("click", loadState);
+document.querySelector("#generateSampleButton").addEventListener("click", generateSampleAnswers);
+document.querySelector("#generateButton").addEventListener("click", generateFullAnswers);
+document.querySelector("#saveSettingsButton").addEventListener("click", saveSettings);
+document.querySelector("#saveResultButton").addEventListener("click", saveResult);
+document.querySelector("#previousQuestion").addEventListener("click", () => moveQuestion(-1));
+document.querySelector("#nextQuestion").addEventListener("click", () => moveQuestion(1));
+
+loadState();
+
+async function loadState() {
+  setStatus("正在载入", false);
+  const response = await fetch("/api/state");
+  state.data = await response.json();
+  state.questions = buildQuestionList(state.data.questionnaire);
+  state.index = Math.min(state.index, Math.max(0, state.questions.length - 1));
+  renderSetup();
+  renderCoverage();
+  renderQuestion();
+  document.querySelector("#resultMarkdown").value = state.data.result_markdown || "";
+  setStatus("已载入", true);
+}
+
+function setView(name) {
+  Object.entries(views).forEach(([viewName, element]) => {
+    element.classList.toggle("active", viewName === name);
+  });
+  document.querySelectorAll(".rail-item").forEach((button) => {
+    button.classList.toggle("active", button.dataset.view === name);
+  });
+  document.querySelector("#viewEyebrow").textContent = viewTitles[name][0];
+  document.querySelector("#viewTitle").textContent = viewTitles[name][1];
+}
+
+function renderSetup() {
+  const targets = state.data.word_targets;
+  document.querySelector("#part1Target").textContent = `${targets.part1.seconds}秒 / ${targets.part1.words}词`;
+  document.querySelector("#part2Target").textContent =
+    `${targets.part2.min_seconds}-${targets.part2.max_seconds}秒 / ${targets.part2.min_words}-${targets.part2.max_words}词`;
+  document.querySelector("#part3Target").textContent = `${targets.part3.seconds}秒 / ${targets.part3.words}词`;
+  renderSettings();
+  renderPaths();
+  renderProfile();
+}
+
+function renderSettings() {
+  const settings = state.data.settings;
+  setInput("targetBandInput", settings.target_band);
+  setInput("wpmInput", settings.speaking_speed_wpm);
+  setInput("part1SecondsInput", settings.part1_seconds);
+  setInput("part2MinSecondsInput", settings.part2_min_seconds);
+  setInput("part2MaxSecondsInput", settings.part2_max_seconds);
+  setInput("part3SecondsInput", settings.part3_seconds);
+  setInput("baseUrlInput", settings.base_url);
+  setInput("apiKeyEnvInput", settings.api_key_env);
+  setInput("modelInput", settings.model);
+  setInput("reviewerModelInput", settings.reviewer_model);
+}
+
+function renderCoverage() {
+  const coverage = state.data.coverage || { overall_percent: 0, status: "资料不足", followups: [], theme_reports: [] };
+  document.querySelector("#coverageScore").textContent = `${coverage.overall_percent}%`;
+  document.querySelector("#coverageSummary").textContent = coverageSummaryText(coverage);
+  document.querySelector("#coverageBar").style.width = `${Math.max(0, Math.min(100, coverage.overall_percent))}%`;
+  const themeCoverage = document.querySelector("#themeCoverage");
+  themeCoverage.innerHTML = "";
+  coverage.theme_reports.forEach((report) => {
+    const row = document.createElement("div");
+    row.className = "coverage-row";
+    row.innerHTML = `<strong>${escapeHtml(report.label)}</strong><span>${escapeHtml(report.status)} · ${report.score}%</span>`;
+    themeCoverage.appendChild(row);
+  });
+  const followups = document.querySelector("#followupList");
+  followups.innerHTML = "";
+  const items = coverage.followups.length ? coverage.followups : ["资料足够后，可以先生成测试样本，再决定是否全量生成。"];
+  items.forEach((item) => {
+    const li = document.createElement("li");
+    li.textContent = item;
+    followups.appendChild(li);
+  });
+}
+
+function coverageSummaryText(coverage) {
+  if (coverage.status === "资料不足") {
+    return "资料不足：请补充下面建议，避免 AI 编造个人经历。";
+  }
+  if (coverage.status === "可以生成测试样本") {
+    return "资料基本够用：建议先生成测试样本，确认风格后再全量生成。";
+  }
+  return "资料覆盖较完整：可以生成测试样本，也可以全量生成。";
+}
+
+function renderPaths() {
+  const pathList = document.querySelector("#pathList");
+  pathList.innerHTML = "";
+  [
+    ["题库", state.data.paths.question_bank],
+    ["学生资料", state.data.paths.student_profile],
+    ["输入素材", state.data.paths.profile_responses],
+    ["答案结果", state.data.paths.result_markdown],
+  ].forEach(([label, value]) => {
+    const row = document.createElement("div");
+    row.innerHTML = `<dt>${escapeHtml(label)}</dt><dd>${escapeHtml(value)}</dd>`;
+    pathList.appendChild(row);
+  });
+}
+
+function renderProfile() {
+  const profileGrid = document.querySelector("#profileGrid");
+  profileGrid.innerHTML = "";
+  [
+    ["姓名", state.data.profile.name || "未填写"],
+    ["身份", state.data.profile.current_status || "未填写"],
+    ["家乡", state.data.profile.hometown || "未填写"],
+  ].forEach(([label, value]) => {
+    const row = document.createElement("div");
+    row.innerHTML = `<span>${escapeHtml(label)}</span><strong>${escapeHtml(value)}</strong>`;
+    profileGrid.appendChild(row);
+  });
+}
+
+function buildQuestionList(questionnaire) {
+  const questions = [];
+  questionnaire.part1.forEach((question) => {
+    questions.push({
+      part: "Part 1",
+      key: question.question_id,
+      group: "part1",
+      title: question.question,
+      prompt: "请先给直接答案，再补充一个真实原因或例子。中文填写即可，生成时会转成自然英文。",
+      fields: [
+        ["direct_answer", "你的直接答案"],
+        ["example", "真实原因或例子"],
+        ["avoid", "不要提到的内容"],
+      ],
+    });
+  });
+  questionnaire.umbrella_stories.forEach((story) => {
+    questions.push({
+      part: "Part 2",
+      key: story.theme,
+      group: "umbrella_stories",
+      title: themeLabels[story.theme] || story.theme.replaceAll("_", " "),
+      prompt: `这些题可以共用一个伞状故事：${story.part2_prompts.join(" / ")}`,
+      fields: [
+        ["story", "真实可复用故事"],
+        ["details", "三个具体细节"],
+        ["lesson", "感受、结果或收获"],
+        ["avoid", "不要编造或不要提到的内容"],
+      ],
+    });
+    story.part3_questions.forEach((question) => {
+      questions.push({
+        part: "Part 3",
+        key: question.question_id,
+        group: "part3",
+        title: question.question,
+        prompt: "请写你的自然观点，并给一个例子、对比或让步。资料越具体，答案越像真人。",
+        fields: [
+          ["opinion", "你的观点"],
+          ["example", "例子或对比"],
+        ],
+      });
+    });
+  });
+  return questions;
+}
+
+function renderQuestion() {
+  const current = state.questions[state.index];
+  const fields = document.querySelector("#answerFields");
+  if (!current) {
+    document.querySelector("#questionPart").textContent = "准备中";
+    document.querySelector("#questionCounter").textContent = "0 / 0";
+    document.querySelector("#questionText").textContent = "请先导入题库";
+    document.querySelector("#questionPrompt").textContent = "";
+    fields.innerHTML = "";
+    return;
+  }
+  document.querySelector("#questionPart").textContent = current.part;
+  document.querySelector("#questionCounter").textContent = `${state.index + 1} / ${state.questions.length}`;
+  document.querySelector("#questionText").textContent = current.title;
+  document.querySelector("#questionPrompt").textContent = current.prompt;
+  fields.innerHTML = "";
+  const currentValues = responseBucket(current.group)[current.key] || {};
+  current.fields.forEach(([name, label]) => {
+    const wrapper = document.createElement("div");
+    wrapper.className = "field-block";
+    const textarea = document.createElement("textarea");
+    textarea.value = currentValues[name] || "";
+    textarea.dataset.field = name;
+    textarea.addEventListener("input", () => {
+      updateResponse(current, name, textarea.value);
+      scheduleSave();
+    });
+    const fieldLabel = document.createElement("label");
+    fieldLabel.textContent = label;
+    wrapper.appendChild(fieldLabel);
+    wrapper.appendChild(textarea);
+    fields.appendChild(wrapper);
+  });
+}
+
+function responseBucket(group) {
+  state.data.responses[group] ||= {};
+  return state.data.responses[group];
+}
+
+function updateResponse(question, field, value) {
+  const bucket = responseBucket(question.group);
+  bucket[question.key] ||= {};
+  bucket[question.key][field] = value;
+}
+
+function moveQuestion(delta) {
+  state.index = Math.max(0, Math.min(state.questions.length - 1, state.index + delta));
+  renderQuestion();
+}
+
+function scheduleSave() {
+  setStatus("正在保存", false);
+  window.clearTimeout(state.saveTimer);
+  state.saveTimer = window.setTimeout(saveResponses, 450);
+}
+
+async function saveResponses() {
+  const response = await fetch("/api/profile-responses", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ responses: state.data.responses }),
+  });
+  const payload = await response.json();
+  if (!payload.ok) {
+    setStatus("保存失败", false);
+    return;
+  }
+  state.data = payload.state;
+  renderCoverage();
+  setStatus("已保存", true);
+}
+
+async function saveSettings() {
+  setStatus("正在保存设置", false);
+  const response = await fetch("/api/settings", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ settings: collectSettings() }),
+  });
+  const payload = await response.json();
+  if (!payload.ok) {
+    setStatus("设置保存失败", false);
+    return;
+  }
+  state.data = payload.state;
+  renderSetup();
+  setStatus("设置已保存", true);
+}
+
+async function saveResult() {
+  setStatus("正在保存结果", false);
+  const response = await fetch("/api/result-markdown", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ markdown: document.querySelector("#resultMarkdown").value }),
+  });
+  const payload = await response.json();
+  if (!payload.ok) {
+    setStatus("结果保存失败", false);
+    return;
+  }
+  state.data = payload.state;
+  setStatus("结果已保存", true);
+}
+
+async function generateSampleAnswers() {
+  await generateAnswers("/api/generate-sample", "正在生成测试样本", "测试样本已生成");
+}
+
+async function generateFullAnswers() {
+  await generateAnswers("/api/generate", "正在全量生成", "完整答案已生成");
+}
+
+async function generateAnswers(endpoint, loadingText, successText) {
+  setView("results");
+  setStatus(loadingText, false);
+  setGenerateDisabled(true);
+  const response = await fetch(endpoint, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({}),
+  });
+  const payload = await response.json();
+  setGenerateDisabled(false);
+  if (!payload.ok) {
+    setStatus("资料不足", false);
+    document.querySelector("#resultMarkdown").value = `资料不足，暂时不能生成。\n\n请补充：\n${payload.error}`;
+    return;
+  }
+  state.data = payload.state;
+  document.querySelector("#resultMarkdown").value = state.data.result_markdown || "";
+  renderCoverage();
+  setStatus(successText, true);
+}
+
+function collectSettings() {
+  return {
+    target_band: numberValue("targetBandInput"),
+    speaking_speed_wpm: numberValue("wpmInput"),
+    part1_seconds: numberValue("part1SecondsInput"),
+    part2_min_seconds: numberValue("part2MinSecondsInput"),
+    part2_max_seconds: numberValue("part2MaxSecondsInput"),
+    part3_seconds: numberValue("part3SecondsInput"),
+    base_url: valueOf("baseUrlInput"),
+    api_key_env: valueOf("apiKeyEnvInput"),
+    model: valueOf("modelInput"),
+    reviewer_model: valueOf("reviewerModelInput"),
+  };
+}
+
+function setGenerateDisabled(disabled) {
+  document.querySelector("#generateSampleButton").disabled = disabled;
+  document.querySelector("#generateButton").disabled = disabled;
+}
+
+function setStatus(message, saved) {
+  document.querySelector("#saveStatus").textContent = message;
+  document.querySelector("#statusDot").classList.toggle("saved", Boolean(saved));
+}
+
+function setInput(id, value) {
+  document.querySelector(`#${id}`).value = value ?? "";
+}
+
+function valueOf(id) {
+  return document.querySelector(`#${id}`).value.trim();
+}
+
+function numberValue(id) {
+  return Number(document.querySelector(`#${id}`).value);
+}
+
+function escapeHtml(value) {
+  return String(value)
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;");
+}

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Protocol
 
@@ -15,11 +15,20 @@ class LLMClient(Protocol):
 
 
 @dataclass(frozen=True)
+class TimingConfig:
+    part1_seconds: int = 15
+    part2_min_seconds: int = 100
+    part2_max_seconds: int = 110
+    part3_seconds: int = 40
+
+
+@dataclass(frozen=True)
 class GenerationConfig:
     target_band: int
     answer_length: str
     speaking_speed_wpm: int
     output_dir: Path
+    timing: TimingConfig = field(default_factory=TimingConfig)
     checkpoint_mode: bool = True
     temperature: float = 0.2
 
@@ -49,6 +58,7 @@ class GenerationPipeline:
         payload = {
             "style_guide": style_guide,
             "checkpoint_samples": checkpoint_samples,
+            "word_targets": word_targets_for(self.config.speaking_speed_wpm, self.config.timing),
             "answers": answers,
             "review": review,
             "bank": prepared_bank,
@@ -135,6 +145,13 @@ class GenerationPipeline:
             "target_band": self.config.target_band,
             "answer_length": self.config.answer_length,
             "speaking_speed_wpm": self.config.speaking_speed_wpm,
+            "timing_requirements": {
+                "part1_seconds": self.config.timing.part1_seconds,
+                "part2_min_seconds": self.config.timing.part2_min_seconds,
+                "part2_max_seconds": self.config.timing.part2_max_seconds,
+                "part3_seconds": self.config.timing.part3_seconds,
+            },
+            "word_targets": word_targets_for(self.config.speaking_speed_wpm, self.config.timing),
             "payloads": payloads,
         }
         return [
@@ -143,6 +160,7 @@ class GenerationPipeline:
                 "content": (
                     "You are an IELTS speaking answer architect. Use first principles: answer only bank questions, "
                     "preserve one student voice, use Part 1 A+R/E, Part 2 umbrella stories, and Part 3 AREA variants. "
+                    "Follow the supplied word_targets for spoken answer length. "
                     "Return valid JSON only."
                 ),
             },
@@ -213,6 +231,27 @@ REQUIRED_SCHEMA_KEYS = {
     "quality_review": {"passed", "issues", "revision_instructions"},
     "revised_answer_batch": {"part1", "part2_blocks"},
 }
+
+
+def word_targets_for(speaking_speed_wpm: int, timing: TimingConfig) -> dict[str, Any]:
+    if speaking_speed_wpm <= 0:
+        raise ValueError("speaking_speed_wpm must be greater than 0")
+    if timing.part2_max_seconds < timing.part2_min_seconds:
+        raise ValueError("part2_max_seconds must be greater than or equal to part2_min_seconds")
+    return {
+        "part1": {"seconds": timing.part1_seconds, "words": _seconds_to_words(timing.part1_seconds, speaking_speed_wpm)},
+        "part2": {
+            "min_seconds": timing.part2_min_seconds,
+            "max_seconds": timing.part2_max_seconds,
+            "min_words": _seconds_to_words(timing.part2_min_seconds, speaking_speed_wpm),
+            "max_words": _seconds_to_words(timing.part2_max_seconds, speaking_speed_wpm),
+        },
+        "part3": {"seconds": timing.part3_seconds, "words": _seconds_to_words(timing.part3_seconds, speaking_speed_wpm)},
+    }
+
+
+def _seconds_to_words(seconds: int, speaking_speed_wpm: int) -> int:
+    return round(seconds * speaking_speed_wpm / 60)
 
 
 def _schema_is_complete(schema_name: str, result: dict[str, Any]) -> bool:

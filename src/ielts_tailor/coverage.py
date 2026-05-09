@@ -1,0 +1,131 @@
+from __future__ import annotations
+
+from typing import Any
+
+from .questionnaire import build_questionnaire_model
+
+
+THEME_LABELS = {
+    "city_travel": "城市/旅行",
+    "people_relationships": "人物/关系",
+    "technology_media": "科技/媒体",
+    "work_study": "学习/工作",
+    "rules_society": "规则/社会",
+    "lifestyle_activity": "生活/活动",
+    "general_experience": "通用经历",
+}
+
+
+def analyze_coverage(bank: dict[str, Any], responses: dict[str, Any] | None) -> dict[str, Any]:
+    responses = responses or {}
+    questionnaire = build_questionnaire_model(bank)
+    part1_report = _part1_coverage(questionnaire.get("part1", []), responses.get("part1", {}))
+    theme_reports = [
+        _theme_coverage(story, responses.get("umbrella_stories", {}), responses.get("part3", {}))
+        for story in questionnaire.get("umbrella_stories", [])
+    ]
+    theme_score = _average([report["score"] for report in theme_reports])
+    part3_score = _average([report["part3_score"] for report in theme_reports])
+    overall = round(part1_report["score"] * 0.15 + theme_score * 0.55 + part3_score * 0.30)
+    followups = []
+    if part1_report["missing_count"]:
+        followups.append(f"请补充 {part1_report['missing_count']} 个 Part 1 直接回答和例子。")
+    for report in theme_reports:
+        for item in report["missing"]:
+            followups.append(f"{report['label']}：请补充{item}。")
+    can_generate_sample = overall >= 70 and not any(report["status"] == "资料不足" for report in theme_reports)
+    can_generate_full = overall >= 85 and all(report["status"] == "资料充足" for report in theme_reports)
+    if can_generate_full:
+        status = "可以全量生成"
+    elif can_generate_sample:
+        status = "可以生成测试样本"
+    else:
+        status = "资料不足"
+    return {
+        "overall_percent": overall,
+        "status": status,
+        "can_generate_sample": can_generate_sample,
+        "can_generate_full": can_generate_full,
+        "part1": part1_report,
+        "theme_reports": theme_reports,
+        "followups": followups[:8],
+    }
+
+
+def _part1_coverage(questions: list[dict[str, Any]], responses: dict[str, Any]) -> dict[str, Any]:
+    total = len(questions)
+    answered = 0
+    for question in questions:
+        answer = responses.get(question.get("question_id", ""), {})
+        if _has_text(answer.get("direct_answer")) and _has_text(answer.get("example")):
+            answered += 1
+    score = 100 if total == 0 else round(answered / total * 100)
+    return {"total": total, "answered": answered, "missing_count": max(total - answered, 0), "score": score}
+
+
+def _theme_coverage(story: dict[str, Any], story_responses: dict[str, Any], part3_responses: dict[str, Any]) -> dict[str, Any]:
+    theme = story["theme"]
+    response = story_responses.get(theme, {})
+    missing = []
+    story_score = 0
+    if _has_text(response.get("story"), min_chars=20):
+        story_score += 35
+    else:
+        missing.append("一个真实、可复用的 Part 2 故事")
+    if _detail_count(response.get("details")) >= 3:
+        story_score += 30
+    else:
+        missing.append("三个具体细节")
+    if _has_text(response.get("lesson"), min_chars=10):
+        story_score += 25
+    else:
+        missing.append("感受、结果或收获")
+    if _has_text(response.get("avoid")):
+        story_score += 10
+    part3_total = len(story.get("part3_questions", []))
+    part3_answered = 0
+    for question in story.get("part3_questions", []):
+        answer = part3_responses.get(question.get("question_id", ""), {})
+        if _has_text(answer.get("opinion"), min_chars=8) and _has_text(answer.get("example"), min_chars=8):
+            part3_answered += 1
+    part3_score = 100 if part3_total == 0 else round(part3_answered / part3_total * 100)
+    if part3_total and part3_answered < part3_total:
+        missing.append("相关 Part 3 观点和例子")
+    combined = round(story_score * 0.7 + part3_score * 0.3)
+    if combined >= 85:
+        status = "资料充足"
+    elif combined >= 70:
+        status = "可以测试"
+    else:
+        status = "资料不足"
+    return {
+        "theme": theme,
+        "label": THEME_LABELS.get(theme, theme.replace("_", "/")),
+        "score": combined,
+        "story_score": story_score,
+        "part3_score": part3_score,
+        "part3_answered": part3_answered,
+        "part3_total": part3_total,
+        "status": status,
+        "missing": missing,
+    }
+
+
+def _average(values: list[int]) -> int:
+    return 100 if not values else round(sum(values) / len(values))
+
+
+def _has_text(value: Any, min_chars: int = 3) -> bool:
+    return isinstance(value, str) and len(value.strip()) >= min_chars
+
+
+def _detail_count(value: Any) -> int:
+    if isinstance(value, list):
+        return len([item for item in value if str(item).strip()])
+    if not isinstance(value, str):
+        return 0
+    separators = [",", "，", "、", ";", "；", "\n"]
+    normalized = value
+    for separator in separators[1:]:
+        normalized = normalized.replace(separator, separators[0])
+    return len([item for item in normalized.split(",") if item.strip()])
