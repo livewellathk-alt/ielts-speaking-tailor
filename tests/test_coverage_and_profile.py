@@ -1,9 +1,50 @@
 import pytest
 import yaml
 
+from ielts_tailor.bank import import_bank_text
 from ielts_tailor.coverage import analyze_coverage
 from ielts_tailor.profile_builder import build_generation_profile
 from ielts_tailor.web import generate_sample_answers
+
+
+IMPORTED_BANK_TEXT = """
+一、大陆地区新题
+
+Part 1 5 月在考新题（10 道）
+
+1 P1 Music
+
+Do you prefer sad or happy music?
+When do you listen to music?
+
+Part 2&3 5 月在考新题（12 道）
+
+1 P2 去过的最喜欢的城市
+
+Describe your favorite city that you have visited
+You should say:
+Where it is
+When you went there
+What you did there
+And explain why you liked it
+
+P3
+How do people choose a city to travel to?
+What are the differences between travelling to cities and natural places?
+
+2 P2 有用的软件
+
+Describe an app or website you often use
+You should say:
+What it is
+When you use it
+Why it is useful
+And explain how you feel about it
+
+P3
+How has technology changed people's lives?
+Which is more helpful, using apps or asking teachers?
+"""
 
 
 def two_theme_bank():
@@ -118,6 +159,43 @@ def test_coverage_flags_missing_inputs_with_chinese_followups():
 
 def test_coverage_allows_sample_and_full_when_inputs_have_coverage_and_depth():
     report = analyze_coverage(two_theme_bank(), strong_responses())
+
+    assert report["overall_percent"] >= 85
+    assert report["can_generate_sample"] is True
+    assert report["can_generate_full"] is True
+    assert report["status"] == "可以全量生成"
+
+
+def test_coverage_allows_full_generation_for_imported_bank_ids(tmp_path):
+    bank = import_bank_text(IMPORTED_BANK_TEXT, region="mainland", output_path=tmp_path / "question_bank.yaml")
+    responses = {
+        "part1": {
+            "p1_music_q1": {"direct_answer": "Happy music", "example": "It helps me focus before class."},
+            "p1_music_q2": {"direct_answer": "In the evening", "example": "I listen while walking home."},
+        },
+        "umbrella_stories": {
+            "city_travel": {
+                "story": "I visited Tokyo during a school break with my classmates.",
+                "details": "metro system, ramen shop, clean streets",
+                "lesson": "It made me appreciate organized public transport.",
+                "avoid": "Do not say I lived there.",
+            },
+            "technology_media": {
+                "story": "I started using a study app before my final exams.",
+                "details": "flashcards, reminders, progress chart",
+                "lesson": "It helped me study more consistently.",
+                "avoid": "Do not mention gaming.",
+            },
+        },
+        "part3": {
+            "p2_1_p3_1": {"opinion": "Cities offer convenience.", "example": "Transport and food choices are easy to find."},
+            "p2_1_p3_2": {"opinion": "Natural places are quieter.", "example": "A mountain trip is calmer than shopping downtown."},
+            "p2_2_p3_1": {"opinion": "Technology saves time.", "example": "Apps help students organize revision."},
+            "p2_2_p3_2": {"opinion": "Teachers are better for feedback.", "example": "An app cannot always explain mistakes clearly."},
+        },
+    }
+
+    report = analyze_coverage(bank, responses)
 
     assert report["overall_percent"] >= 85
     assert report["can_generate_sample"] is True

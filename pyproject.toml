@@ -9,6 +9,7 @@ description = "CLI for generating personalized IELTS speaking answer documents f
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
+  "certifi>=2024.8.30",
   "PyYAML>=6.0",
   "python-docx>=1.1.2",
 ]

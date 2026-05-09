@@ -2,10 +2,13 @@ from __future__ import annotations
 
 import json
 import os
+import ssl
 import urllib.error
 import urllib.request
 from dataclasses import dataclass
 from typing import Any
+
+import certifi
 
 
 @dataclass(frozen=True)
@@ -36,7 +39,8 @@ class OpenAICompatibleClient:
                     headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
                     method="POST",
                 )
-                with urllib.request.urlopen(request, timeout=self.timeout_seconds) as response:
+                context = ssl.create_default_context(cafile=certifi.where())
+                with urllib.request.urlopen(request, timeout=self.timeout_seconds, context=context) as response:
                     body = json.loads(response.read().decode("utf-8"))
                 content = body["choices"][0]["message"]["content"]
                 parsed = json.loads(content)

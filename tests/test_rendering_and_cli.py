@@ -68,6 +68,29 @@ def test_render_markdown_keeps_part3_under_part2_and_includes_indexes():
     assert "Memory cues:" in markdown
 
 
+def test_render_markdown_splits_string_memory_cues_into_readable_items():
+    payload = answer_payload()
+    payload["answers"]["part1"][0]["memory_cues"] = "happy music, morning, energy"
+
+    markdown = render_markdown(payload)
+
+    assert "Memory cues: happy music, morning, energy" in markdown
+    assert "h, a, p, p, y" not in markdown
+
+
+def test_render_markdown_handles_dict_umbrella_story_from_llm():
+    payload = answer_payload()
+    payload["answers"]["part2_blocks"][0]["umbrella_story"] = {
+        "story": "Tokyo trip",
+        "details": "metro, ramen, clean streets",
+    }
+
+    markdown = render_markdown(payload)
+
+    assert "`Tokyo trip`" in markdown
+    assert "unhashable" not in markdown
+
+
 def test_render_outputs_writes_markdown_and_docx(tmp_path: Path):
     paths = render_outputs(answer_payload(), output_dir=tmp_path, basename="answers")
 

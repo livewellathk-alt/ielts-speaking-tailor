@@ -26,6 +26,8 @@ DEFAULT_CONFIG = {
         "target_band": 7,
         "answer_length": "medium",
         "speaking_speed_wpm": 80,
+        "answer_batch_size": 8,
+        "max_revision_items": 20,
         "timing": {
             "part1_seconds": 15,
             "part2_min_seconds": 100,
@@ -192,6 +194,8 @@ def _cmd_generate(args: argparse.Namespace) -> int:
             part3_seconds=int(timing.get("part3_seconds", 40)),
         ),
         checkpoint_mode=bool(generation.get("checkpoint_mode", True)),
+        answer_batch_size=int(generation.get("answer_batch_size", 8)),
+        max_revision_items=int(generation.get("max_revision_items", 20)),
         output_dir=root / paths["output_dir"],
     )
     result = GenerationPipeline(client=client, reviewer_client=reviewer_client, config=pipeline_config).run(bank=bank, profile=profile)

@@ -62,6 +62,9 @@ def test_import_bank_text_links_part3_to_part2_and_filters_region(tmp_path: Path
     assert bank["metadata"]["region_filter"] == "mainland"
     assert [topic["title"] for topic in bank["part1_topics"]] == ["Music"]
     assert len(bank["part2_blocks"]) == 2
+    assert [block["id"] for block in bank["part2_blocks"]] == ["p2_1", "p2_2"]
+    assert [question["id"] for question in bank["part2_blocks"][0]["part3"]] == ["p2_1_p3_1", "p2_1_p3_2"]
+    assert [question["id"] for question in bank["part2_blocks"][1]["part3"]] == ["p2_2_p3_1", "p2_2_p3_2"]
     assert bank["part2_blocks"][0]["title_zh"] == "喜欢或不喜欢的高建筑"
     assert bank["part2_blocks"][0]["part2"]["prompt"] == "Describe a tall building you like or dislike"
     assert bank["part2_blocks"][0]["part3"][0]["question"] == "Are there many tall buildings in your country?"

@@ -125,7 +125,7 @@ def generate_answers(config_path: str | Path) -> dict[str, Any]:
     responses = yaml.safe_load(responses_path.read_text(encoding="utf-8")) if responses_path.exists() else {}
     coverage = analyze_coverage(bank, responses or {})
     if not coverage["can_generate_full"]:
-        raise RuntimeError("资料不足，暂时不建议全量生成。请先根据补充建议完善素材。")
+        raise RuntimeError(_coverage_error_message(coverage, mode="full"))
     return _run_generation(config_path, bank=bank, profile=_merged_profile(root, paths, responses), basename="ielts_speaking_answers")
 
 
@@ -136,8 +136,7 @@ def generate_sample_answers(config_path: str | Path) -> dict[str, Any]:
     responses = yaml.safe_load(responses_path.read_text(encoding="utf-8")) if responses_path.exists() else {}
     coverage = analyze_coverage(bank, responses or {})
     if not coverage["can_generate_sample"]:
-        guidance = "；".join(coverage["followups"][:3]) or "请补充 Part 2 故事和 Part 3 观点。"
-        raise RuntimeError(f"资料不足，无法生成测试样本。{guidance}")
+        raise RuntimeError(_coverage_error_message(coverage, mode="sample"))
     sample_bank = _sample_bank(bank)
     return _run_generation(
         config_path,
@@ -169,11 +168,31 @@ def _run_generation(config_path: str | Path, *, bank: dict[str, Any], profile: d
         speaking_speed_wpm=int(generation.get("speaking_speed_wpm", 80)),
         timing=_timing_from_config(generation.get("timing", {})),
         checkpoint_mode=bool(generation.get("checkpoint_mode", True)),
+        answer_batch_size=int(generation.get("answer_batch_size", 8)),
+        max_revision_items=int(generation.get("max_revision_items", 20)),
         output_dir=root / paths["output_dir"],
     )
     result = GenerationPipeline(client=client, reviewer_client=reviewer_client, config=pipeline_config).run(bank=bank, profile=profile)
     rendered = render_outputs(result, output_dir=root / paths["output_dir"], basename=basename)
     return {"result": result, "rendered": {key: str(path) for key, path in rendered.items()}}
+
+
+def _coverage_error_message(coverage: dict[str, Any], *, mode: str) -> str:
+    if mode == "full":
+        prefix = "资料不足，暂时不建议全量生成。"
+    else:
+        prefix = "资料不足，无法生成测试样本。"
+    followups = coverage.get("followups", [])[:5]
+    if followups:
+        return f"{prefix}请先补充：{'；'.join(followups)}"
+    theme_details = [
+        f"{report.get('label', report.get('theme', '主题'))} {report.get('status', '')} {report.get('score', 0)}%"
+        for report in coverage.get("theme_reports", [])
+        if report.get("status") != "资料充足"
+    ]
+    if theme_details:
+        return f"{prefix}请检查这些主题：{'；'.join(theme_details)}"
+    return f"{prefix}请补充 Part 1 直接回答、Part 2 真实故事和 Part 3 观点例子。"
 
 
 def _load_config(config_path: str | Path) -> tuple[Path, dict[str, Any], dict[str, str]]:

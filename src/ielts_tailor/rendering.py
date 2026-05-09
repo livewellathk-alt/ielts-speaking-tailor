@@ -37,7 +37,7 @@ def render_markdown(payload: dict[str, Any]) -> str:
     lines.extend(["## Umbrella Story Index", ""])
     story_map: dict[str, list[str]] = {}
     for block in answers.get("part2_blocks", []):
-        story_map.setdefault(block.get("umbrella_story", "story_general"), []).append(block.get("title_zh", block.get("block_id", "")))
+        story_map.setdefault(_umbrella_story_id(block.get("umbrella_story", "story_general")), []).append(block.get("title_zh", block.get("block_id", "")))
     for story_id, titles in sorted(story_map.items()):
         lines.append(f"- `{story_id}`: {', '.join(title for title in titles if title)}")
     lines.extend(["", "## Part 1", ""])
@@ -75,11 +75,31 @@ def _answer_section(title: str, answer: dict[str, Any], prompt: str | None = Non
         lines.extend([f"English: {answer['answer_en']}", ""])
     if answer.get("answer_zh"):
         lines.extend([f"中文: {answer['answer_zh']}", ""])
-    if answer.get("memory_cues"):
-        lines.extend([f"Memory cues: {', '.join(answer['memory_cues'])}", ""])
+    memory_cues = _memory_cues(answer.get("memory_cues"))
+    if memory_cues:
+        lines.extend([f"Memory cues: {', '.join(memory_cues)}", ""])
     if answer.get("umbrella_story"):
-        lines.extend([f"Umbrella story: `{answer['umbrella_story']}`", ""])
+        lines.extend([f"Umbrella story: `{_umbrella_story_id(answer['umbrella_story'])}`", ""])
     return lines
+
+
+def _umbrella_story_id(value: Any) -> str:
+    if isinstance(value, str):
+        return value
+    if isinstance(value, dict):
+        return str(value.get("id") or value.get("title") or value.get("story") or "story_general")
+    return str(value or "story_general")
+
+
+def _memory_cues(value: Any) -> list[str]:
+    if isinstance(value, list):
+        return [str(item).strip() for item in value if str(item).strip()]
+    if isinstance(value, str):
+        normalized = value
+        for separator in ["，", "、", ";", "；", "\n"]:
+            normalized = normalized.replace(separator, ",")
+        return [item.strip() for item in normalized.split(",") if item.strip()]
+    return []
 
 
 def _write_docx(markdown: str, path: Path) -> None:

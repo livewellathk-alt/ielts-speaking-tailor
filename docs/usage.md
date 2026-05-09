@@ -80,6 +80,32 @@ Outputs are written to the configured output directory:
 - `cache/style_guide.yaml`
 - `checkpoints/samples.yaml` when checkpoint mode is enabled
 
+## Testing the Pipeline
+
+Automated tests use deterministic fake LLM clients, so they can stress import, coverage, generation validation, Markdown, and DOCX output without spending API credits:
+
+```bash
+pytest -q
+```
+
+For a manual live smoke test, use a small imported bank first, fill `output/profile_responses.yaml` through the web interface, set the API key environment variable from `config.yaml`, then generate a test sample before full generation:
+
+```bash
+python3 -m ielts_tailor.cli web --config config.yaml --no-open
+```
+
+The live sample should create `output/ielts_speaking_sample.md` and `output/ielts_speaking_sample.docx`. Review those files for complete Part 1, Part 2, and nested Part 3 coverage before running full generation.
+
+For larger banks, full answer generation is automatically split into smaller Part 2 batches. Adjust `generation.answer_batch_size` if your model is slow or has a small context window:
+
+```yaml
+generation:
+  answer_batch_size: 8
+  max_revision_items: 20
+```
+
+`max_revision_items` keeps large full-bank runs usable: small samples can be automatically revised after review, while large complete batches keep the first complete answer set and record the review issues instead of risking another long request.
+
 ## Local Web Interface
 
 Start the local browser interface:

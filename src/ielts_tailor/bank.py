@@ -38,7 +38,8 @@ def import_bank_text(text: str, *, region: str, output_path: str | Path) -> dict
     mode: str | None = None
     p1_topic: dict[str, Any] | None = None
     p2_block: dict[str, Any] | None = None
-    source_order = 0
+    p1_source_order = 0
+    p2_source_order = 0
     p1_question_order = 0
     p3_question_order = 0
     collecting_cues = False
@@ -86,14 +87,14 @@ def import_bank_text(text: str, *, region: str, output_path: str | Path) -> dict
         p1_match = re.match(r"^\d+\s+P1\s+(.+)$", line)
         if p1_match and mode == "part1":
             finish_p1_topic()
-            source_order += 1
+            p1_source_order += 1
             p1_question_order = 0
             title = p1_match.group(1).strip()
             p1_topic = {
                 "id": f"p1_{_slug(title)}",
                 "title": title,
                 "region": current_region,
-                "source_order": source_order,
+                "source_order": p1_source_order,
                 "questions": [],
             }
             continue
@@ -101,14 +102,14 @@ def import_bank_text(text: str, *, region: str, output_path: str | Path) -> dict
         p2_match = re.match(r"^\d+\s+P2\s+(.+)$", line)
         if p2_match and mode == "part2":
             finish_p2_block()
-            source_order += 1
+            p2_source_order += 1
             p3_question_order = 0
             title_zh = p2_match.group(1).strip()
             p2_block = {
-                "id": f"p2_{source_order}",
+                "id": f"p2_{p2_source_order}",
                 "title_zh": title_zh,
                 "region": current_region,
-                "source_order": source_order,
+                "source_order": p2_source_order,
                 "part2": {"prompt": "", "cue_points": []},
                 "part3": [],
             }
