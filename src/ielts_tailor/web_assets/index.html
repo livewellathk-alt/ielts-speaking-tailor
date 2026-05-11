@@ -51,6 +51,10 @@
               <span>Part 3</span>
               <strong id="part3Target">--</strong>
             </article>
+            <article class="summary-tile">
+              <span>输入问题</span>
+              <strong id="questionBudget">--</strong>
+            </article>
           </div>
 
           <div class="plain-panel">
@@ -89,6 +93,23 @@
           </div>
 
           <div class="plain-panel">
+            <div class="result-header">
+              <div>
+                <h3>导入题库</h3>
+                <p>可以直接上传 PDF，不需要先改 config.yaml。</p>
+              </div>
+              <button class="primary-button" id="uploadBankButton" type="button">导入 PDF</button>
+            </div>
+            <div class="upload-row">
+              <input id="questionBankFile" type="file" accept=".pdf,.txt,.md,application/pdf,text/plain,text/markdown" />
+              <select id="bankRegionInput">
+                <option value="mainland">大陆题库</option>
+                <option value="all">全部题库</option>
+              </select>
+            </div>
+          </div>
+
+          <div class="plain-panel">
             <h3>本地文件</h3>
             <dl class="path-list" id="pathList"></dl>
           </div>
@@ -99,6 +120,17 @@
         </section>
 
         <section class="view" id="testView">
+          <div class="plain-panel poll-panel">
+            <div class="result-header">
+              <div>
+                <h3>素材进度</h3>
+                <p id="pollProgressSummary">0 / 0 已完成</p>
+              </div>
+              <strong class="coverage-score" id="pollProgressPercent">0%</strong>
+            </div>
+            <div class="progress-track"><div id="pollProgressBar"></div></div>
+            <div class="question-nav" id="questionNav"></div>
+          </div>
           <div class="test-frame">
             <div class="test-meta">
               <span id="questionPart">题型</span>
@@ -121,7 +153,9 @@
                 <h3>生成进度</h3>
                 <p id="generationProgressSummary">等待开始生成。</p>
               </div>
+              <strong class="coverage-score" id="generationProgressPercent">0%</strong>
             </div>
+            <div class="progress-track"><div id="generationProgressBar"></div></div>
             <ol class="generation-steps" id="generationSteps"></ol>
           </div>
           <div class="plain-panel result-panel">

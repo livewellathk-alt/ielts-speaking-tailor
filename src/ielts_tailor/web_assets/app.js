@@ -47,6 +47,7 @@ document.querySelector("#generateSampleButton").addEventListener("click", genera
 document.querySelector("#generateButton").addEventListener("click", generateFullAnswers);
 document.querySelector("#saveSettingsButton").addEventListener("click", saveSettings);
 document.querySelector("#saveResultButton").addEventListener("click", saveResult);
+document.querySelector("#uploadBankButton").addEventListener("click", uploadQuestionBank);
 document.querySelector("#previousQuestion").addEventListener("click", () => moveQuestion(-1));
 document.querySelector("#nextQuestion").addEventListener("click", () => moveQuestion(1));
 
@@ -60,6 +61,7 @@ async function loadState() {
   state.index = Math.min(state.index, Math.max(0, state.questions.length - 1));
   renderSetup();
   renderCoverage();
+  renderPollProgress();
   renderQuestion();
   document.querySelector("#resultMarkdown").value = state.data.result_markdown || "";
   setStatus("已载入", true);
@@ -82,6 +84,8 @@ function renderSetup() {
   document.querySelector("#part2Target").textContent =
     `${targets.part2.min_seconds}-${targets.part2.max_seconds}秒 / ${targets.part2.min_words}-${targets.part2.max_words}词`;
   document.querySelector("#part3Target").textContent = `${targets.part3.seconds}秒 / ${targets.part3.words}词`;
+  const metadata = state.data.questionnaire.metadata || {};
+  document.querySelector("#questionBudget").textContent = `${metadata.total_questions || state.questions.length} / ${metadata.max_questions || state.questions.length}题`;
   renderSettings();
   renderPaths();
   renderProfile();
@@ -121,6 +125,29 @@ function renderCoverage() {
     const li = document.createElement("li");
     li.textContent = item;
     followups.appendChild(li);
+  });
+}
+
+function renderPollProgress() {
+  const progress = state.data.poll_progress || { total: state.questions.length, answered: 0, percent: 0, items: [] };
+  document.querySelector("#pollProgressSummary").textContent = `${progress.answered} / ${progress.total} 已完成`;
+  document.querySelector("#pollProgressPercent").textContent = `${progress.percent}%`;
+  document.querySelector("#pollProgressBar").style.width = `${Math.max(0, Math.min(100, progress.percent))}%`;
+  const nav = document.querySelector("#questionNav");
+  nav.innerHTML = "";
+  state.questions.forEach((question, index) => {
+    const item = (progress.items || []).find((candidate) => candidate.key === question.key) || {};
+    const button = document.createElement("button");
+    button.type = "button";
+    button.textContent = `${index + 1}. ${question.title}`;
+    button.classList.toggle("active", index === state.index);
+    button.classList.toggle("complete", Boolean(item.answered));
+    button.addEventListener("click", () => {
+      state.index = index;
+      renderQuestion();
+      renderPollProgress();
+    });
+    nav.appendChild(button);
   });
 }
 
@@ -169,7 +196,7 @@ function buildQuestionList(questionnaire) {
     const scopeId = story.scope_id || story.theme;
     const scopeLabel = story.scope_label || themeLabels[story.theme] || story.theme.replaceAll("_", " ");
     questions.push({
-      part: "Part 2",
+      part: "素材题",
       key: scopeId,
       group: "umbrella_stories",
       title: scopeLabel,
@@ -235,6 +262,7 @@ function updateResponse(question, field, value) {
 function moveQuestion(delta) {
   state.index = Math.max(0, Math.min(state.questions.length - 1, state.index + delta));
   renderQuestion();
+  renderPollProgress();
 }
 
 function scheduleSave() {
@@ -256,6 +284,7 @@ async function saveResponses() {
   }
   state.data = payload.state;
   renderCoverage();
+  renderPollProgress();
   setStatus("已保存", true);
 }
 
@@ -290,6 +319,36 @@ async function saveResult() {
   }
   state.data = payload.state;
   setStatus("结果已保存", true);
+}
+
+async function uploadQuestionBank() {
+  const fileInput = document.querySelector("#questionBankFile");
+  const file = fileInput.files[0];
+  if (!file) {
+    setStatus("请选择题库 PDF", false);
+    return;
+  }
+  setStatus("正在导入题库", false);
+  const form = new FormData();
+  form.append("file", file);
+  form.append("region", valueOf("bankRegionInput"));
+  const response = await fetch("/api/question-bank", {
+    method: "POST",
+    body: form,
+  });
+  const payload = await response.json();
+  if (!payload.ok) {
+    setStatus("题库导入失败", false);
+    return;
+  }
+  state.data = payload.state;
+  state.questions = buildQuestionList(state.data.questionnaire);
+  state.index = 0;
+  renderSetup();
+  renderCoverage();
+  renderPollProgress();
+  renderQuestion();
+  setStatus("题库已导入", true);
 }
 
 async function generateSampleAnswers() {
@@ -339,12 +398,16 @@ function pollGenerationJob(jobId, successText) {
     state.data = payload.state;
     document.querySelector("#resultMarkdown").value = state.data.result_markdown || "";
     renderCoverage();
+    renderPollProgress();
     setStatus(successText, true);
   }, 700);
 }
 
 function renderGenerationProgress(job) {
   const summary = document.querySelector("#generationProgressSummary");
+  const percent = Math.max(0, Math.min(100, Number(job.percent) || 0));
+  document.querySelector("#generationProgressPercent").textContent = `${percent}%`;
+  document.querySelector("#generationProgressBar").style.width = `${percent}%`;
   const list = document.querySelector("#generationSteps");
   const events = job.events || [];
   summary.textContent =

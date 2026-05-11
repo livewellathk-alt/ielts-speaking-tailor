@@ -23,6 +23,8 @@ python3 -m ielts_tailor.cli web --config config.yaml
 ```
 
 This starts a local server at `http://127.0.0.1:8765/`. The interface is an online-test style workspace for setup, student answer inputs, generation, and editable results saved on your computer.
+In the browser, students answer one unified material poll derived only from Part 2 questions in the bank. The poll is capped at 24 screens by default and asks for reusable stories/details by theme; the generator then uses those inputs to write Part 2, Part 3, and Part 1 answers. Users can also import a PDF, TXT, or Markdown question bank directly from the setup screen; the app saves it to the configured local question-bank path.
+The material collection screen shows answered/total progress and lets users jump back to any prompt to edit it. During sample or full generation, the results screen shows a live percentage progress panel instead of leaving users waiting on a blocked button.
 
 Default answer timing is IELTS-speaking focused: Part 1 is about 15 seconds, Part 2 is 1:40-1:50, and Part 3 is about 40 seconds at 80 words per minute. Edit `generation.speaking_speed_wpm` and `generation.timing` in `config.yaml`, or override one run:
 

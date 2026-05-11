@@ -34,6 +34,21 @@ def render_markdown(payload: dict[str, Any]) -> str:
                 "",
             ]
         )
+    review = payload.get("review", {})
+    if review:
+        status = "passed" if review.get("passed") else "needs revision"
+        lines.extend(["## Quality Review", "", f"- Status: {status}"])
+        issues = review.get("issues") or []
+        if issues:
+            lines.append(f"- Issues: {'; '.join(str(issue) for issue in issues)}")
+        if review.get("revision_status"):
+            lines.append(f"- Revision status: {review['revision_status']}")
+        timing_issues = review.get("timing_issues") or []
+        if timing_issues:
+            lines.append(f"- Timing issues: {'; '.join(str(issue) for issue in timing_issues)}")
+        else:
+            lines.append("- Timing: within configured targets")
+        lines.append("")
     lines.extend(["## Umbrella Story Index", ""])
     story_map: dict[str, list[str]] = {}
     for block in answers.get("part2_blocks", []):

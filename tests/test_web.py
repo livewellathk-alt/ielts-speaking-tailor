@@ -9,6 +9,7 @@ from ielts_tailor.web import (
     generate_answers,
     generate_sample_answers,
     get_generation_job,
+    import_uploaded_question_bank,
     load_web_state,
     save_profile_responses,
     save_result_markdown,
@@ -249,6 +250,9 @@ def test_load_web_state_includes_online_test_data_and_timing_targets(tmp_path: P
     assert state["questionnaire"]["umbrella_stories"][0]["scope_label"] == "Places: visited place"
     assert state["questionnaire"]["umbrella_stories"][0]["part2_prompts"] == ["Describe your favorite city that you have visited"]
     assert state["questionnaire"]["umbrella_stories"][0]["why_reusable"]
+    assert state["poll_progress"]["total"] == 1
+    assert state["poll_progress"]["answered"] == 0
+    assert state["poll_progress"]["percent"] == 0
     assert state["profile"]["name"] == "Alex"
     assert state["coverage"]["status"] == "资料不足"
     assert state["settings"]["speaking_speed_wpm"] == 80
@@ -269,6 +273,52 @@ def test_save_profile_responses_writes_editable_yaml(tmp_path: Path):
     assert path == tmp_path / "output" / "profile_responses.yaml"
     assert saved["part1"]["p1_music_q1"]["direct_answer"] == "Happy music"
     assert saved["umbrella_stories"]["scope_places_visited_place"]["story"] == "Tokyo trip"
+
+
+def test_web_poll_progress_counts_completed_scope_cards(tmp_path: Path):
+    config_path = write_project(tmp_path)
+    save_profile_responses(
+        config_path,
+        {
+            "umbrella_stories": {
+                "scope_places_visited_place": {
+                    "story": "I visited Tokyo during a school break with classmates and used that trip in many examples.",
+                    "details": "metro system, ramen shop, clean streets",
+                    "lesson": "It made me appreciate organized public transport.",
+                }
+            }
+        },
+    )
+
+    state = load_web_state(config_path)
+
+    assert state["poll_progress"]["total"] == 1
+    assert state["poll_progress"]["answered"] == 1
+    assert state["poll_progress"]["percent"] == 100
+
+
+def test_import_uploaded_pdf_question_bank_writes_configured_bank_path(tmp_path: Path, monkeypatch):
+    config_path = write_project(tmp_path)
+    calls = []
+
+    def fake_import_bank(source_path, *, region, output_path):
+        calls.append((Path(source_path), region, Path(output_path)))
+        bank = {
+            "metadata": {"region_filter": region},
+            "part1_topics": [],
+            "part2_blocks": [],
+        }
+        Path(output_path).write_text(yaml.safe_dump(bank, sort_keys=False, allow_unicode=True), encoding="utf-8")
+        return bank
+
+    monkeypatch.setattr("ielts_tailor.web.import_bank", fake_import_bank)
+
+    result = import_uploaded_question_bank(config_path, filename="May-bank.PDF", content=b"%PDF-1.4", region="mainland")
+
+    assert result["question_bank_path"] == str(tmp_path / "data" / "question_bank.yaml")
+    assert result["uploaded_path"].endswith("May-bank.PDF")
+    assert calls == [(tmp_path / "output" / "uploads" / "May-bank.PDF", "mainland", tmp_path / "data" / "question_bank.yaml")]
+    assert (tmp_path / "data" / "question_bank.yaml").exists()
 
 
 def test_save_result_markdown_writes_editable_answers_file(tmp_path: Path):
@@ -331,6 +381,7 @@ def test_web_sample_and_full_generation_write_complete_outputs(tmp_path: Path, m
     monkeypatch.setattr("ielts_tailor.web.OpenAICompatibleClient", DeterministicClient)
 
     sample = generate_sample_answers(config_path)
+    sample_state = load_web_state(config_path)
     full = generate_answers(config_path)
 
     sample_markdown = Path(sample["rendered"]["markdown"])
@@ -341,6 +392,8 @@ def test_web_sample_and_full_generation_write_complete_outputs(tmp_path: Path, m
     assert sample_docx == tmp_path / "output" / "ielts_speaking_sample.docx"
     assert full_markdown == tmp_path / "output" / "ielts_speaking_answers.md"
     assert full_docx == tmp_path / "output" / "ielts_speaking_answers.docx"
+    assert sample_state["result_markdown_source"] == "sample"
+    assert "IELTS Speaking Tailor" in sample_state["result_markdown"]
 
     markdown = full_markdown.read_text(encoding="utf-8")
     assert "## Timing Targets" in markdown
@@ -372,6 +425,7 @@ def test_generation_job_exposes_stage_progress_and_final_state(tmp_path: Path, m
         status = get_generation_job(job["job_id"])
 
     assert status["status"] == "completed"
+    assert status["percent"] == 100
     assert [event["stage"] for event in status["events"]] == [
         "scope_analysis",
         "style_guide",

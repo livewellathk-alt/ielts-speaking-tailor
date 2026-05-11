@@ -122,8 +122,16 @@ python3 -m ielts_tailor.cli web --config config.yaml --port 9000 --no-open
 The interface is organized like an online speaking test:
 
 - Setup shows file paths, student profile status, and timing targets.
+- Setup can import a PDF, TXT, or Markdown question bank directly into the configured local `question_bank` path.
 - Test asks one input question at a time for Part 2 scope-card stories only.
-- Results shows live generation progress, then editable Markdown answers after validated output exists.
+- Test shows answered/total progress and lets users jump back to any material prompt to edit it.
+- Results shows live generation percentage and stage progress, then editable Markdown answers after validated output exists.
+
+The localhost test flow intentionally does not ask every bank question and does not ask Part 1 prompts directly. By default it asks up to 24 input screens:
+
+- One reusable story/details prompt for each detected Part 2 scope card.
+- The prompt lists the matching Part 2 cue cards that the story should cover.
+- The same user material is later used to generate Part 2, related Part 3, and Part 1 answers.
 
 Autosaved profile responses are written to `output/profile_responses.yaml`. Edited results are saved to `output/ielts_speaking_answers.md`; full generation also writes the existing DOCX output.
 

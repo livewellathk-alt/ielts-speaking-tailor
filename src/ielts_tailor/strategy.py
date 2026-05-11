@@ -107,6 +107,8 @@ def analyze_part2_scope(block: dict[str, Any]) -> dict[str, Any]:
 
 
 def _theme_for_block(block: dict[str, Any]) -> str:
+    if block.get("theme"):
+        return str(block["theme"])
     text = " ".join(
         [
             str(block.get("title_zh", "")),

@@ -64,6 +64,29 @@ def build_questionnaire_model(bank: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def build_balanced_questionnaire_model(bank: dict[str, Any], *, max_questions: int = 24, max_part1: int = 6) -> dict[str, Any]:
+    """Build a localhost input poll from Part 2 themes only."""
+    full = build_questionnaire_model(bank)
+    balanced_stories = []
+    for story in full["umbrella_stories"][:max_questions]:
+        balanced = dict(story)
+        balanced["part3_questions"] = []
+        balanced_stories.append(balanced)
+    total = len(balanced_stories)
+    return {
+        "metadata": {
+            "source": "part2_only",
+            "max_questions": max_questions,
+            "total_questions": total,
+            "part1_questions": 0,
+            "part2_story_questions": len(balanced_stories),
+            "part3_questions": 0,
+        },
+        "part1": [],
+        "umbrella_stories": balanced_stories,
+    }
+
+
 def build_profile_questionnaire_markdown(bank: dict[str, Any]) -> str:
     model = build_questionnaire_model(bank)
     lines = [

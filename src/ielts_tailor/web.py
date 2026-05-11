@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import mimetypes
+import re
 import threading
 import time
 import uuid
@@ -14,7 +15,7 @@ from urllib.parse import urlparse
 
 import yaml
 
-from .bank import load_question_bank
+from .bank import import_bank, load_question_bank
 from .coverage import analyze_coverage
 from .generation import GenerationConfig, GenerationPipeline, TimingConfig, word_targets_for
 from .openai_client import OpenAICompatibleClient
@@ -55,11 +56,15 @@ def load_web_state(config_path: str | Path) -> dict[str, Any]:
     bank_path = root / paths["question_bank"]
     profile_path = root / paths["student_profile"]
     result_path = output_dir / "ielts_speaking_answers.md"
+    sample_result_path = output_dir / "ielts_speaking_sample.md"
     responses_path = output_dir / "profile_responses.yaml"
     bank = load_question_bank(bank_path) if bank_path.exists() else {"part1_topics": [], "part2_blocks": []}
     profile = yaml.safe_load(profile_path.read_text(encoding="utf-8")) if profile_path.exists() else {}
     responses = yaml.safe_load(responses_path.read_text(encoding="utf-8")) if responses_path.exists() else {}
+    questionnaire = build_questionnaire_model(bank)
     coverage = analyze_coverage(bank, responses or {})
+    active_result_path = result_path if result_path.exists() else sample_result_path
+    result_source = "full" if result_path.exists() else "sample" if sample_result_path.exists() else ""
     return {
         "config": config,
         "settings": _settings_from_config(config),
@@ -71,19 +76,23 @@ def load_web_state(config_path: str | Path) -> dict[str, Any]:
             "output_dir": str(output_dir),
             "profile_responses": str(responses_path),
             "result_markdown": str(result_path),
+            "sample_markdown": str(sample_result_path),
         },
         "files": {
             "question_bank_exists": bank_path.exists(),
             "student_profile_exists": profile_path.exists(),
             "profile_responses_exists": responses_path.exists(),
             "result_markdown_exists": result_path.exists(),
+            "sample_markdown_exists": sample_result_path.exists(),
         },
         "profile": profile or {},
         "responses": responses or {},
-        "questionnaire": build_questionnaire_model(bank),
+        "questionnaire": questionnaire,
+        "poll_progress": _poll_progress(questionnaire, responses or {}),
         "coverage": coverage,
         "word_targets": word_targets_for(int(generation.get("speaking_speed_wpm", 80)), timing),
-        "result_markdown": result_path.read_text(encoding="utf-8") if result_path.exists() else "",
+        "result_markdown": active_result_path.read_text(encoding="utf-8") if active_result_path.exists() else "",
+        "result_markdown_source": result_source,
     }
 
 
@@ -122,6 +131,67 @@ def save_settings(config_path: str | Path, settings: dict[str, Any]) -> Path:
             llm[key] = settings[key] or None
     config_path.write_text(yaml.safe_dump(config, sort_keys=False, allow_unicode=True), encoding="utf-8")
     return config_path
+
+
+def import_uploaded_question_bank(config_path: str | Path, *, filename: str, content: bytes, region: str = "mainland") -> dict[str, str]:
+    if not filename:
+        raise ValueError("question bank filename is required")
+    safe_name = _safe_upload_name(filename)
+    if Path(safe_name).suffix.lower() not in {".pdf", ".txt", ".md"}:
+        raise ValueError("question bank must be a PDF, TXT, or Markdown file")
+    root, _config, paths = _load_config(config_path)
+    upload_dir = root / paths["output_dir"] / "uploads"
+    upload_dir.mkdir(parents=True, exist_ok=True)
+    uploaded_path = upload_dir / safe_name
+    uploaded_path.write_bytes(content)
+    question_bank_path = root / paths["question_bank"]
+    import_bank(uploaded_path, region=region, output_path=question_bank_path)
+    return {"uploaded_path": str(uploaded_path), "question_bank_path": str(question_bank_path)}
+
+
+def _poll_progress(questionnaire: dict[str, Any], responses: dict[str, Any]) -> dict[str, Any]:
+    stories = questionnaire.get("umbrella_stories", [])
+    story_responses = responses.get("umbrella_stories", {})
+    items = []
+    for story in stories:
+        key = story.get("scope_id") or story.get("theme", "")
+        answer = story_responses.get(key, {})
+        answered = _story_response_complete(answer)
+        items.append(
+            {
+                "key": key,
+                "label": story.get("scope_label") or key.replace("_", "/"),
+                "answered": answered,
+            }
+        )
+    total = len(items)
+    answered_count = len([item for item in items if item["answered"]])
+    percent = 100 if total == 0 else round(answered_count / total * 100)
+    return {"total": total, "answered": answered_count, "percent": percent, "items": items}
+
+
+def _story_response_complete(answer: dict[str, Any]) -> bool:
+    return (
+        isinstance(answer, dict)
+        and _has_text(answer.get("story"), min_chars=20)
+        and _detail_count(answer.get("details")) >= 3
+        and _has_text(answer.get("lesson"), min_chars=10)
+    )
+
+
+def _has_text(value: Any, min_chars: int = 3) -> bool:
+    return isinstance(value, str) and len(value.strip()) >= min_chars
+
+
+def _detail_count(value: Any) -> int:
+    if isinstance(value, list):
+        return len([item for item in value if str(item).strip()])
+    if not isinstance(value, str):
+        return 0
+    normalized = value
+    for separator in ["，", "、", ";", "；", "\n"]:
+        normalized = normalized.replace(separator, ",")
+    return len([item for item in normalized.split(",") if item.strip()])
 
 
 def generate_answers(config_path: str | Path, progress_callback: Any | None = None) -> dict[str, Any]:
@@ -167,6 +237,7 @@ def start_generation_job(config_path: str | Path, *, mode: str) -> dict[str, Any
         "job_id": job_id,
         "mode": mode,
         "status": "running",
+        "percent": 1,
         "events": [],
         "result": None,
         "error": None,
@@ -213,6 +284,7 @@ def _append_job_event(job_id: str, event: dict[str, Any]) -> None:
     with GENERATION_JOBS_LOCK:
         job = GENERATION_JOBS[job_id]
         job["events"].append(item)
+        job["percent"] = max(int(job.get("percent", 1)), _progress_percent(job["events"]))
         job["updated_at"] = item["timestamp"]
 
 
@@ -227,6 +299,7 @@ def _complete_generation_job(
     with GENERATION_JOBS_LOCK:
         job = GENERATION_JOBS[job_id]
         job["status"] = status
+        job["percent"] = 100
         job["result"] = result
         job["error"] = error
         job["state"] = state
@@ -301,6 +374,28 @@ def _load_config(config_path: str | Path) -> tuple[Path, dict[str, Any], dict[st
     config_path = Path(config_path).resolve()
     config = yaml.safe_load(config_path.read_text(encoding="utf-8"))
     return config_path.parent, config, config["paths"]
+
+
+def _safe_upload_name(filename: str) -> str:
+    name = Path(filename).name
+    safe = re.sub(r"[^A-Za-z0-9._ -]+", "_", name).strip(" .")
+    return safe or "question-bank.pdf"
+
+
+def _progress_percent(events: list[dict[str, Any]]) -> int:
+    stage_weights = {
+        "scope_analysis": 10,
+        "style_guide": 20,
+        "checkpoint_samples": 35,
+        "answer_batch": 60,
+        "quality_review": 78,
+        "revision": 88,
+        "render_output": 96,
+    }
+    percent = 1
+    for event in events:
+        percent = max(percent, stage_weights.get(str(event.get("stage", "")), percent))
+    return percent
 
 
 def _timing_from_config(timing: dict[str, Any]) -> TimingConfig:
@@ -401,6 +496,19 @@ def _handler_for(config_path: Path) -> type[SimpleHTTPRequestHandler]:
         def do_POST(self) -> None:
             route = urlparse(self.path).path
             try:
+                if route == "/api/question-bank":
+                    form = self._read_multipart()
+                    file_item = form.get("file")
+                    if not isinstance(file_item, dict):
+                        raise ValueError("question bank file is required")
+                    imported = import_uploaded_question_bank(
+                        config_path,
+                        filename=str(file_item.get("filename", "")),
+                        content=bytes(file_item.get("content", b"")),
+                        region=str(form.get("region") or "mainland"),
+                    )
+                    self._send_json({"ok": True, **imported, "state": load_web_state(config_path)})
+                    return
                 payload = self._read_json()
                 if route == "/api/profile-responses":
                     path = save_profile_responses(config_path, payload.get("responses", {}))
@@ -435,6 +543,35 @@ def _handler_for(config_path: Path) -> type[SimpleHTTPRequestHandler]:
             if length == 0:
                 return {}
             return json.loads(self.rfile.read(length).decode("utf-8"))
+
+        def _read_multipart(self) -> dict[str, Any]:
+            content_type = self.headers.get("Content-Type", "")
+            boundary_match = re.search(r"boundary=(?P<boundary>[^;]+)", content_type)
+            if not boundary_match:
+                raise ValueError("multipart boundary is missing")
+            boundary = boundary_match.group("boundary").strip('"').encode("utf-8")
+            length = int(self.headers.get("Content-Length", "0"))
+            body = self.rfile.read(length)
+            form: dict[str, Any] = {}
+            for part in body.split(b"--" + boundary):
+                part = part.strip()
+                if not part or part == b"--":
+                    continue
+                headers_blob, _, content = part.partition(b"\r\n\r\n")
+                if content.endswith(b"\r\n"):
+                    content = content[:-2]
+                headers = headers_blob.decode("utf-8", errors="replace")
+                disposition = next((line for line in headers.split("\r\n") if line.lower().startswith("content-disposition:")), "")
+                name_match = re.search(r'name="([^"]+)"', disposition)
+                if not name_match:
+                    continue
+                name = name_match.group(1)
+                filename_match = re.search(r'filename="([^"]*)"', disposition)
+                if filename_match:
+                    form[name] = {"filename": filename_match.group(1), "content": content}
+                else:
+                    form[name] = content.decode("utf-8", errors="replace")
+            return form
 
         def _send_json(self, payload: dict[str, Any], status: HTTPStatus = HTTPStatus.OK) -> None:
             body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
