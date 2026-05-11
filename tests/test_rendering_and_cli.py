@@ -198,9 +198,10 @@ def test_profile_questions_asks_for_part1_inputs_and_umbrella_stories(tmp_path: 
 
     assert exit_code == 0
     questionnaire = output_path.read_text(encoding="utf-8")
-    assert "## Part 1 Answer Inputs" in questionnaire
-    assert "Do you prefer sad or happy music?" in questionnaire
-    assert "## Umbrella Story Inputs" in questionnaire
+    assert "## One Collection For Parts 1, 2, and 3" in questionnaire
+    assert "Do you prefer sad or happy music?" not in questionnaire
+    assert "Related Part 3 questions" not in questionnaire
+    assert "How do people choose a city to travel to?" not in questionnaire
     assert "### Places: visited place" in questionnaire
     assert "Describe your favorite city that you have visited" in questionnaire
     assert "What person, thing, place, or event can answer these prompts?" in questionnaire

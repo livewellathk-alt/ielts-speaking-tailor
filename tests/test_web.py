@@ -156,10 +156,6 @@ def write_realistic_project(tmp_path: Path) -> Path:
 
 def realistic_responses() -> dict:
     return {
-        "part1": {
-            "p1_music_q1": {"direct_answer": "Happy music", "example": "It helps me focus before class."},
-            "p1_music_q2": {"direct_answer": "In the evening", "example": "I listen while walking home."},
-        },
         "umbrella_stories": {
             "scope_places_visited_place": {
                 "story": "I visited Tokyo during a school break with my classmates.",
@@ -172,16 +168,6 @@ def realistic_responses() -> dict:
                 "details": "flashcards, reminders, progress chart",
                 "lesson": "It helped me study more consistently.",
                 "avoid": "Do not mention gaming.",
-            },
-        },
-        "part3_scope_defaults": {
-            "scope_places_visited_place": {
-                "opinion": "Cities offer convenience, but natural places are calmer.",
-                "example": "Tokyo was easy to navigate because the metro was clear.",
-            },
-            "scope_objects_useful_object": {
-                "opinion": "Technology saves time, but teachers are better for feedback.",
-                "example": "A study app helped me organize revision before exams.",
             },
         },
     }
@@ -258,6 +244,7 @@ def test_load_web_state_includes_online_test_data_and_timing_targets(tmp_path: P
     assert state["word_targets"]["part2"]["max_words"] == 147
     assert state["word_targets"]["part3"]["words"] == 53
     assert state["questionnaire"]["part1"][0]["question"] == "Do you prefer sad or happy music?"
+    assert state["questionnaire"]["collection_sequence"] == ["part2_scope_collection"]
     assert state["questionnaire"]["umbrella_stories"][0]["scope_id"] == "scope_places_visited_place"
     assert state["questionnaire"]["umbrella_stories"][0]["scope_label"] == "Places: visited place"
     assert state["questionnaire"]["umbrella_stories"][0]["part2_prompts"] == ["Describe your favorite city that you have visited"]
@@ -333,6 +320,9 @@ def test_web_assets_are_chinese_first():
     assert "生成测试样本" in html
     assert "资料不足" in app
     assert "请补充" in app
+    assert 'group: "part1"' not in app
+    assert 'group: "part3_scope_defaults"' not in app
+    assert "一套素材生成 Part 2、Part 3 和 Part 1" in app
 
 
 def test_web_sample_and_full_generation_write_complete_outputs(tmp_path: Path, monkeypatch):

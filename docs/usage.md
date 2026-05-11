@@ -27,12 +27,11 @@ python3 -m ielts_tailor.cli profile-questions \
 
 The questionnaire asks for:
 
-- Part 1 direct answers, reasons, examples, and details to avoid.
 - One reusable umbrella story per Part 2 scope card.
 - Concrete story details the AI may reuse across related cue cards.
-- One broad opinion and example per scope for related Part 3 questions.
+- Details the AI should avoid inventing or mentioning.
 
-Use the completed questionnaire to fill `student_profile.yaml` before running full generation.
+Use the completed questionnaire to fill `output/profile_responses.yaml` through the web interface or your own YAML editing. The generator uses this one Part 2 collection to write Part 2 first, then Part 3, then Part 1.
 
 ## Timing Settings
 
@@ -123,7 +122,7 @@ python3 -m ielts_tailor.cli web --config config.yaml --port 9000 --no-open
 The interface is organized like an online speaking test:
 
 - Setup shows file paths, student profile status, and timing targets.
-- Test asks one input question at a time for Part 1, Part 2 scope-card stories, and broad Part 3 defaults.
+- Test asks one input question at a time for Part 2 scope-card stories only.
 - Results shows live generation progress, then editable Markdown answers after validated output exists.
 
 Autosaved profile responses are written to `output/profile_responses.yaml`. Edited results are saved to `output/ielts_speaking_answers.md`; full generation also writes the existing DOCX output.

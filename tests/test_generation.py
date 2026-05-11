@@ -213,12 +213,15 @@ def test_generation_messages_include_word_targets(tmp_path: Path):
     GenerationPipeline(client=client, config=config).run(bank=small_bank(), profile={"name": "Alex"})
 
     message_content = client.calls[0]["messages"][1]["content"]
+    system_content = client.calls[0]["messages"][0]["content"]
     assert "word_targets:" in message_content
     assert "part1:" in message_content
     assert "words: 20" in message_content
     assert "min_words: 133" in message_content
     assert "max_words: 147" in message_content
     assert "part3:" in message_content
+    assert "Collect once from Part 2 scope cards" in system_content
+    assert "write Part 2 first, then Part 3, then Part 1" in system_content
 
 
 class MinimalValidClient(FakeLLMClient):

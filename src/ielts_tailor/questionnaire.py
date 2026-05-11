@@ -56,7 +56,12 @@ def build_questionnaire_model(bank: dict[str, Any]) -> dict[str, Any]:
                 ],
             }
         )
-    return {"part1": part1, "umbrella_stories": umbrella_stories}
+    return {
+        "part1": part1,
+        "umbrella_stories": umbrella_stories,
+        "collection_sequence": ["part2_scope_collection"],
+        "collection_strategy": "collect_part2_scope_cards_then_generate_part2_part3_part1",
+    }
 
 
 def build_profile_questionnaire_markdown(bank: dict[str, Any]) -> str:
@@ -70,33 +75,11 @@ def build_profile_questionnaire_markdown(bank: dict[str, Any]) -> str:
         "- Where are you from, and what details can you comfortably repeat in answers?",
         "- Which topics should the system avoid?",
         "",
-        "## Part 1 Answer Inputs",
+        "## One Collection For Parts 1, 2, and 3",
         "",
-        "Use these prompts to give the AI facts, preferences, and examples. Short notes are enough.",
+        "Collect only Part 2 scope-card material. The AI will write Part 2 first, then adapt the same material for related Part 3 discussion and Part 1 short answers.",
         "",
     ]
-    current_topic = None
-    for question in model["part1"]:
-        if question["topic_title"] != current_topic:
-            current_topic = question["topic_title"]
-            lines.extend([f"### {current_topic}", ""])
-        lines.extend(
-            [
-                f"- Question: {question['question']}",
-                "  - What is your direct answer?",
-                "  - What reason or example should the AI use?",
-                "  - Which details should the AI avoid or never invent?",
-            ]
-        )
-    lines.extend(
-        [
-            "",
-            "## Umbrella Story Inputs",
-            "",
-            "Give one real reusable story per scope card. The AI will adapt it across matching Part 2 prompts and use broad Part 3 defaults when exact opinions are missing.",
-            "",
-        ]
-    )
     for story in model["umbrella_stories"]:
         lines.extend(
             [
@@ -109,8 +92,6 @@ def build_profile_questionnaire_markdown(bank: dict[str, Any]) -> str:
                 "- What 3 concrete details can the AI reuse flexibly?",
                 "- What feeling, result, or lesson can the AI reuse?",
                 "- Which details should the AI avoid or never invent?",
-                "- What is your broad opinion for related Part 3 questions in this scope?",
-                "- What example, comparison, or concession can support that opinion?",
                 "",
                 "Matching Part 2 prompts:",
             ]
@@ -119,8 +100,5 @@ def build_profile_questionnaire_markdown(bank: dict[str, Any]) -> str:
             cue_points = prompt.get("cue_points", [])
             cue_text = f" Cue points: {'; '.join(cue_points)}" if cue_points else ""
             lines.append(f"- {prompt.get('prompt', '')}{cue_text}")
-        lines.extend(["", "Related Part 3 questions this broad opinion can support:", ""])
-        for question in story["part3_questions"]:
-            lines.append(f"- {question['question']}")
         lines.append("")
     return "\n".join(lines).strip() + "\n"

@@ -29,7 +29,7 @@ LEGACY_THEME_ALIASES = {
 def analyze_coverage(bank: dict[str, Any], responses: dict[str, Any] | None) -> dict[str, Any]:
     responses = responses or {}
     questionnaire = build_questionnaire_model(bank)
-    part1_report = _part1_coverage(questionnaire.get("part1", []), responses.get("part1", {}))
+    part1_report = _part1_collection_coverage(questionnaire.get("part1", []))
     theme_reports = [
         _theme_coverage(
             story,
@@ -40,11 +40,8 @@ def analyze_coverage(bank: dict[str, Any], responses: dict[str, Any] | None) -> 
         for story in questionnaire.get("umbrella_stories", [])
     ]
     theme_score = _average([report["score"] for report in theme_reports])
-    part3_score = _average([report["part3_score"] for report in theme_reports])
-    overall = round(part1_report["score"] * 0.15 + theme_score * 0.55 + part3_score * 0.30)
+    overall = round(part1_report["score"] * 0.15 + theme_score * 0.85)
     followups = []
-    if part1_report["missing_count"]:
-        followups.append(f"请补充 {part1_report['missing_count']} 个 Part 1 直接回答和例子。")
     for report in theme_reports:
         for item in report["missing"]:
             followups.append(f"{report['label']}：请补充{item}。")
@@ -78,6 +75,17 @@ def _part1_coverage(questions: list[dict[str, Any]], responses: dict[str, Any]) 
     return {"total": total, "answered": answered, "missing_count": max(total - answered, 0), "score": score}
 
 
+def _part1_collection_coverage(questions: list[dict[str, Any]]) -> dict[str, Any]:
+    total = len(questions)
+    return {
+        "total": total,
+        "answered": total,
+        "missing_count": 0,
+        "score": 100,
+        "collection_strategy": "generated_from_part2_scope_collection",
+    }
+
+
 def _theme_coverage(
     story: dict[str, Any],
     story_responses: dict[str, Any],
@@ -103,20 +111,9 @@ def _theme_coverage(
     if _has_text(response.get("avoid")):
         story_score += 10
     part3_total = len(story.get("part3_questions", []))
-    part3_default = _response_for_scope(part3_scope_defaults, theme)
-    if _has_text(part3_default.get("opinion"), min_chars=8) and _has_text(part3_default.get("example"), min_chars=8):
-        part3_answered = part3_total
-        part3_score = 100
-    else:
-        part3_answered = 0
-        for question in story.get("part3_questions", []):
-            answer = part3_responses.get(question.get("question_id", ""), {})
-            if _has_text(answer.get("opinion"), min_chars=8) and _has_text(answer.get("example"), min_chars=8):
-                part3_answered += 1
-        part3_score = 100 if part3_total == 0 else round(part3_answered / part3_total * 100)
-    if part3_total and part3_answered < part3_total:
-        missing.append("一个可复用的 Part 3 广义观点和例子")
-    combined = round(story_score * 0.7 + part3_score * 0.3)
+    part3_answered = part3_total
+    part3_score = 100
+    combined = story_score
     if combined >= 85:
         status = "资料充足"
     elif combined >= 70:

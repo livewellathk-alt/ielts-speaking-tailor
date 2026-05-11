@@ -259,7 +259,8 @@ class GenerationPipeline:
             {
                 "role": "system",
                 "content": (
-                    "You are an IELTS speaking answer architect. Use first principles: first identify the real scope "
+                    "You are an IELTS speaking answer architect. Collect once from Part 2 scope cards and use that "
+                    "single collection to write Part 2 first, then Part 3, then Part 1. Use first principles: first identify the real scope "
                     "of each Part 2 cue card, map it to the closest supplied scope card, then decide how to adapt the "
                     "student's reusable material. Answer only bank questions, preserve one student voice, use Part 1 "
                     "A+R/E, Part 2 umbrella stories, and Part 3 AREA variants. IELTS answers may adapt one true story "

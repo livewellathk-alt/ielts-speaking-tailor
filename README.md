@@ -46,7 +46,7 @@ The CLI keeps intermediate artifacts explicit so large banks can be debugged and
 5. Generate checkpoint samples when enabled.
 6. Generate answers, review against IELTS descriptors and local frameworks, revise once, then render Markdown and DOCX.
 
-Run `profile-questions` before generation to create a questionnaire for the student. It now groups Part 2 cue cards by exam scope first, so one flexible real story can cover compatible prompts such as an admired person, a great teacher, and an important influence. Part 3 uses broad scope-level opinion defaults instead of requiring every follow-up question up front.
+Run `profile-questions` before generation to create a questionnaire for the student. It now collects only Part 2 scope-card material, so one flexible real story can cover compatible prompts such as an admired person, a great teacher, and an important influence. The generator writes Part 2 first, then adapts the same collection for Part 3 discussion and Part 1 short answers.
 
 The web interface saves editable files under the configured output directory, including `profile_responses.yaml`, `ielts_speaking_answers.md`, and `ielts_speaking_answers.docx`. While generation runs, the Results view shows live stages for scope analysis, style guide, answer batches, quality review, and output rendering.
 

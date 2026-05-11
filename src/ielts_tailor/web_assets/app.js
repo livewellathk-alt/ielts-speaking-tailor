@@ -165,20 +165,6 @@ function renderProfile() {
 
 function buildQuestionList(questionnaire) {
   const questions = [];
-  questionnaire.part1.forEach((question) => {
-    questions.push({
-      part: "Part 1",
-      key: question.question_id,
-      group: "part1",
-      title: question.question,
-      prompt: "请先给直接答案，再补充一个真实原因或例子。中文填写即可，生成时会转成自然英文。",
-      fields: [
-        ["direct_answer", "你的直接答案"],
-        ["example", "真实原因或例子"],
-        ["avoid", "不要提到的内容"],
-      ],
-    });
-  });
   questionnaire.umbrella_stories.forEach((story) => {
     const scopeId = story.scope_id || story.theme;
     const scopeLabel = story.scope_label || themeLabels[story.theme] || story.theme.replaceAll("_", " ");
@@ -187,7 +173,7 @@ function buildQuestionList(questionnaire) {
       key: scopeId,
       group: "umbrella_stories",
       title: scopeLabel,
-      prompt: `${story.why_reusable || "这些题可以共用一个真实素材。"} 相关题目：${story.part2_prompts.join(" / ")}`,
+      prompt: `一套素材生成 Part 2、Part 3 和 Part 1。${story.why_reusable || "这些题可以共用一个真实素材。"} 相关题目：${story.part2_prompts.join(" / ")}`,
       fields: [
         ["story", "人物、物品、地点或事件"],
         ["situation", "发生了什么或你通常怎么使用它"],
@@ -196,19 +182,6 @@ function buildQuestionList(questionnaire) {
         ["avoid", "不要编造或不要提到的内容"],
       ],
     });
-    if (story.part3_questions.length) {
-      questions.push({
-        part: "Part 3",
-        key: scopeId,
-        group: "part3_scope_defaults",
-        title: `${scopeLabel} 的通用观点`,
-        prompt: `用一个宽松观点支持这些追问：${story.part3_questions.map((question) => question.question).join(" / ")}`,
-        fields: [
-          ["opinion", "你的通用观点"],
-          ["example", "例子、对比或让步"],
-        ],
-      });
-    }
   });
   return questions;
 }
