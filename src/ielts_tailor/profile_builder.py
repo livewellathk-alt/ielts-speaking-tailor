@@ -25,6 +25,8 @@ def build_generation_profile(base_profile: dict[str, Any], responses: dict[str, 
         if answer.get("avoid"):
             avoid_details.append(str(answer["avoid"]))
     part3_by_theme = profile.setdefault("theme_answers", {})
+    for scope_id, answer in responses.get("part3_scope_defaults", {}).items():
+        part3_by_theme.setdefault(scope_id, {})["part3_default"] = answer
     for question_id, answer in responses.get("part3", {}).items():
         theme = _theme_from_question_id(question_id)
         part3_by_theme.setdefault(theme, {}).setdefault("part3", {})[question_id] = answer

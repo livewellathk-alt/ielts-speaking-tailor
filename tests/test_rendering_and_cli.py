@@ -201,7 +201,8 @@ def test_profile_questions_asks_for_part1_inputs_and_umbrella_stories(tmp_path: 
     assert "## Part 1 Answer Inputs" in questionnaire
     assert "Do you prefer sad or happy music?" in questionnaire
     assert "## Umbrella Story Inputs" in questionnaire
-    assert "### city_travel" in questionnaire
+    assert "### Places: visited place" in questionnaire
     assert "Describe your favorite city that you have visited" in questionnaire
-    assert "What 3 concrete details can the AI reuse?" in questionnaire
+    assert "What person, thing, place, or event can answer these prompts?" in questionnaire
+    assert "What 3 concrete details can the AI reuse flexibly?" in questionnaire
     assert "Which details should the AI avoid or never invent?" in questionnaire

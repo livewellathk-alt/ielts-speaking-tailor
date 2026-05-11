@@ -17,7 +17,7 @@ Use `--region all` when the student wants mainland and non-mainland sections tog
 
 Run `init`, then edit `student_profile.yaml`. Keep entries factual and reusable: hometown, study/work status, comfortable topics, topics to avoid, and real stories that can cover several Part 2 cue cards.
 
-Run `profile-questions` after importing a bank to create a theme-specific questionnaire:
+Run `profile-questions` after importing a bank to create a scope-card questionnaire:
 
 ```bash
 python3 -m ielts_tailor.cli profile-questions \
@@ -28,9 +28,9 @@ python3 -m ielts_tailor.cli profile-questions \
 The questionnaire asks for:
 
 - Part 1 direct answers, reasons, examples, and details to avoid.
-- One reusable umbrella story per Part 2 theme.
+- One reusable umbrella story per Part 2 scope card.
 - Concrete story details the AI may reuse across related cue cards.
-- Natural opinions and examples for related Part 3 questions.
+- One broad opinion and example per scope for related Part 3 questions.
 
 Use the completed questionnaire to fill `student_profile.yaml` before running full generation.
 
@@ -123,11 +123,11 @@ python3 -m ielts_tailor.cli web --config config.yaml --port 9000 --no-open
 The interface is organized like an online speaking test:
 
 - Setup shows file paths, student profile status, and timing targets.
-- Test asks one input question at a time for Part 1, Part 2 umbrella stories, and Part 3 opinions.
-- Results shows editable Markdown answers and saves edits locally.
+- Test asks one input question at a time for Part 1, Part 2 scope-card stories, and broad Part 3 defaults.
+- Results shows live generation progress, then editable Markdown answers after validated output exists.
 
 Autosaved profile responses are written to `output/profile_responses.yaml`. Edited results are saved to `output/ielts_speaking_answers.md`; full generation also writes the existing DOCX output.
 
 ## Large Bank Behavior
 
-Part 2 is the primary study unit. Related Part 3 questions remain directly under each Part 2 cue card, and adjacent Part 2 blocks are sorted by reusable umbrella-story themes when possible. This preserves exam flow while reducing memory load.
+Part 2 is the primary study unit. The importer keeps Part 3 under each cue card, then the strategy layer identifies the exam scope of each Part 2 prompt and groups compatible prompts into scope cards. This keeps the user input small while still letting generation adapt one true story across many IELTS cue cards.

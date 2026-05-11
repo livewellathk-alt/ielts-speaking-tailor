@@ -2,6 +2,9 @@ from __future__ import annotations
 
 import json
 import mimetypes
+import threading
+import time
+import uuid
 import webbrowser
 from http import HTTPStatus
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
@@ -18,9 +21,12 @@ from .openai_client import OpenAICompatibleClient
 from .profile_builder import build_generation_profile
 from .questionnaire import build_questionnaire_model
 from .rendering import render_outputs
+from .strategy import cluster_part2_blocks
 
 
 ASSET_DIR = Path(__file__).with_name("web_assets")
+GENERATION_JOBS: dict[str, dict[str, Any]] = {}
+GENERATION_JOBS_LOCK = threading.Lock()
 
 
 def run_web_server(*, config_path: str | Path, host: str = "127.0.0.1", port: int = 8765, open_browser: bool = True) -> None:
@@ -118,7 +124,7 @@ def save_settings(config_path: str | Path, settings: dict[str, Any]) -> Path:
     return config_path
 
 
-def generate_answers(config_path: str | Path) -> dict[str, Any]:
+def generate_answers(config_path: str | Path, progress_callback: Any | None = None) -> dict[str, Any]:
     root, config, paths = _load_config(config_path)
     bank = load_question_bank(root / paths["question_bank"])
     responses_path = root / paths["output_dir"] / "profile_responses.yaml"
@@ -126,10 +132,16 @@ def generate_answers(config_path: str | Path) -> dict[str, Any]:
     coverage = analyze_coverage(bank, responses or {})
     if not coverage["can_generate_full"]:
         raise RuntimeError(_coverage_error_message(coverage, mode="full"))
-    return _run_generation(config_path, bank=bank, profile=_merged_profile(root, paths, responses), basename="ielts_speaking_answers")
+    return _run_generation(
+        config_path,
+        bank=bank,
+        profile=_merged_profile(root, paths, responses),
+        basename="ielts_speaking_answers",
+        progress_callback=progress_callback,
+    )
 
 
-def generate_sample_answers(config_path: str | Path) -> dict[str, Any]:
+def generate_sample_answers(config_path: str | Path, progress_callback: Any | None = None) -> dict[str, Any]:
     root, _config, paths = _load_config(config_path)
     bank = load_question_bank(root / paths["question_bank"])
     responses_path = root / paths["output_dir"] / "profile_responses.yaml"
@@ -143,10 +155,92 @@ def generate_sample_answers(config_path: str | Path) -> dict[str, Any]:
         bank=sample_bank,
         profile=_merged_profile(root, paths, responses),
         basename="ielts_speaking_sample",
+        progress_callback=progress_callback,
     )
 
 
-def _run_generation(config_path: str | Path, *, bank: dict[str, Any], profile: dict[str, Any], basename: str) -> dict[str, Any]:
+def start_generation_job(config_path: str | Path, *, mode: str) -> dict[str, Any]:
+    if mode not in {"sample", "full"}:
+        raise ValueError("mode must be 'sample' or 'full'")
+    job_id = uuid.uuid4().hex
+    job = {
+        "job_id": job_id,
+        "mode": mode,
+        "status": "running",
+        "events": [],
+        "result": None,
+        "error": None,
+        "state": None,
+        "created_at": time.time(),
+        "updated_at": time.time(),
+    }
+    with GENERATION_JOBS_LOCK:
+        GENERATION_JOBS[job_id] = job
+    thread = threading.Thread(target=_run_generation_job, args=(job_id, Path(config_path), mode), daemon=True)
+    thread.start()
+    return get_generation_job(job_id)
+
+
+def get_generation_job(job_id: str) -> dict[str, Any]:
+    with GENERATION_JOBS_LOCK:
+        job = GENERATION_JOBS.get(job_id)
+        if not job:
+            raise KeyError(f"unknown generation job: {job_id}")
+        return json.loads(json.dumps(job))
+
+
+def _run_generation_job(job_id: str, config_path: Path, mode: str) -> None:
+    def progress(event: dict[str, Any]) -> None:
+        _append_job_event(job_id, event)
+
+    try:
+        if mode == "sample":
+            result = generate_sample_answers(config_path, progress_callback=progress)
+        else:
+            result = generate_answers(config_path, progress_callback=progress)
+        _complete_generation_job(job_id, status="completed", result=result, state=load_web_state(config_path))
+    except Exception as exc:
+        _complete_generation_job(job_id, status="failed", error=str(exc), state=load_web_state(config_path))
+
+
+def _append_job_event(job_id: str, event: dict[str, Any]) -> None:
+    item = {
+        "stage": event.get("stage", ""),
+        "message": event.get("message", ""),
+        "details": event.get("details", {}),
+        "timestamp": time.time(),
+    }
+    with GENERATION_JOBS_LOCK:
+        job = GENERATION_JOBS[job_id]
+        job["events"].append(item)
+        job["updated_at"] = item["timestamp"]
+
+
+def _complete_generation_job(
+    job_id: str,
+    *,
+    status: str,
+    result: dict[str, Any] | None = None,
+    error: str | None = None,
+    state: dict[str, Any] | None = None,
+) -> None:
+    with GENERATION_JOBS_LOCK:
+        job = GENERATION_JOBS[job_id]
+        job["status"] = status
+        job["result"] = result
+        job["error"] = error
+        job["state"] = state
+        job["updated_at"] = time.time()
+
+
+def _run_generation(
+    config_path: str | Path,
+    *,
+    bank: dict[str, Any],
+    profile: dict[str, Any],
+    basename: str,
+    progress_callback: Any | None = None,
+) -> dict[str, Any]:
     root, config, paths = _load_config(config_path)
     generation = config["generation"]
     llm = config["llm"]
@@ -172,9 +266,17 @@ def _run_generation(config_path: str | Path, *, bank: dict[str, Any], profile: d
         max_revision_items=int(generation.get("max_revision_items", 20)),
         output_dir=root / paths["output_dir"],
     )
-    result = GenerationPipeline(client=client, reviewer_client=reviewer_client, config=pipeline_config).run(bank=bank, profile=profile)
+    result = GenerationPipeline(
+        client=client,
+        reviewer_client=reviewer_client,
+        config=pipeline_config,
+        progress_callback=progress_callback,
+    ).run(bank=bank, profile=profile)
     rendered = render_outputs(result, output_dir=root / paths["output_dir"], basename=basename)
-    return {"result": result, "rendered": {key: str(path) for key, path in rendered.items()}}
+    rendered_paths = {key: str(path) for key, path in rendered.items()}
+    if progress_callback:
+        progress_callback({"stage": "render_output", "message": "Rendered Markdown and DOCX output.", "details": rendered_paths})
+    return {"result": result, "rendered": rendered_paths}
 
 
 def _coverage_error_message(coverage: dict[str, Any], *, mode: str) -> str:
@@ -254,8 +356,8 @@ def _sample_bank(bank: dict[str, Any]) -> dict[str, Any]:
             remaining -= len(questions)
     sample["part2_blocks"] = []
     seen_themes = set()
-    for block in bank.get("part2_blocks", []):
-        theme = block.get("theme") or ""
+    for block in cluster_part2_blocks(bank.get("part2_blocks", [])):
+        theme = block.get("scope_id") or block.get("theme") or ""
         if theme in seen_themes:
             continue
         sampled = dict(block)
@@ -280,6 +382,13 @@ def _handler_for(config_path: Path) -> type[SimpleHTTPRequestHandler]:
             route = urlparse(self.path).path
             if route == "/api/state":
                 self._send_json(load_web_state(config_path))
+                return
+            if route.startswith("/api/generation-jobs/"):
+                job_id = route.removeprefix("/api/generation-jobs/")
+                try:
+                    self._send_json(get_generation_job(job_id))
+                except KeyError as exc:
+                    self._send_json({"ok": False, "error": str(exc)}, status=HTTPStatus.NOT_FOUND)
                 return
             if route == "/":
                 self._send_asset(ASSET_DIR / "index.html")
@@ -312,6 +421,10 @@ def _handler_for(config_path: Path) -> type[SimpleHTTPRequestHandler]:
                 if route == "/api/generate":
                     generated = generate_answers(config_path)
                     self._send_json({"ok": True, **generated, "state": load_web_state(config_path)})
+                    return
+                if route == "/api/generation-jobs":
+                    job = start_generation_job(config_path, mode=str(payload.get("mode", "sample")))
+                    self._send_json({"ok": True, **job})
                     return
                 self.send_error(HTTPStatus.NOT_FOUND)
             except Exception as exc:

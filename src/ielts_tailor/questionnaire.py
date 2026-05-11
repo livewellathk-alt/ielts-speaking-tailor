@@ -17,13 +17,30 @@ def build_questionnaire_model(bank: dict[str, Any]) -> dict[str, Any]:
         for topic in bank.get("part1_topics", [])
         for question in topic.get("questions", [])
     ]
-    themes = sorted({block.get("theme", "general_experience") for block in clustered})
+    themes = sorted({block.get("scope_id", block.get("theme", "scope_general_experience")) for block in clustered})
     umbrella_stories = []
     for theme in themes:
-        theme_blocks = [block for block in clustered if block.get("theme") == theme]
+        theme_blocks = [block for block in clustered if block.get("scope_id", block.get("theme")) == theme]
+        first = theme_blocks[0] if theme_blocks else {}
         umbrella_stories.append(
             {
                 "theme": theme,
+                "scope_id": theme,
+                "scope_label": first.get("scope_label", theme.replace("_", " ").title()),
+                "scope_category": first.get("scope_category", "general"),
+                "compatibility_tags": sorted(
+                    {tag for block in theme_blocks for tag in block.get("compatibility_tags", [])}
+                ),
+                "why_reusable": first.get("why_reusable", "One real story can be adapted across these related prompts."),
+                "matched_prompts": [
+                    {
+                        "block_id": block.get("id", ""),
+                        "title_zh": block.get("title_zh", ""),
+                        "prompt": block.get("part2", {}).get("prompt", block.get("title_zh", block.get("id", "Part 2"))),
+                        "cue_points": block.get("part2", {}).get("cue_points", []),
+                    }
+                    for block in theme_blocks
+                ],
                 "part2_prompts": [
                     block.get("part2", {}).get("prompt", block.get("title_zh", block.get("id", "Part 2")))
                     for block in theme_blocks
@@ -76,35 +93,34 @@ def build_profile_questionnaire_markdown(bank: dict[str, Any]) -> str:
             "",
             "## Umbrella Story Inputs",
             "",
-            "Give one real reusable story per theme. The AI will adapt these stories across matching Part 2 prompts and related Part 3 answers.",
+            "Give one real reusable story per scope card. The AI will adapt it across matching Part 2 prompts and use broad Part 3 defaults when exact opinions are missing.",
             "",
         ]
     )
     for story in model["umbrella_stories"]:
         lines.extend(
             [
-                f"### {story['theme']}",
+                f"### {story.get('scope_label', story['theme'])}",
                 "",
-                "- What real personal story could represent this theme for 1 minute 40 seconds to 1 minute 50 seconds?",
-                "- When and where did it happen?",
-                "- What 3 concrete details can the AI reuse?",
+                f"- Scope id: `{story.get('scope_id', story['theme'])}`",
+                f"- Why this is reusable: {story.get('why_reusable', '')}",
+                "- What person, thing, place, or event can answer these prompts?",
+                "- What happened, or what do you usually do with it?",
+                "- What 3 concrete details can the AI reuse flexibly?",
                 "- What feeling, result, or lesson can the AI reuse?",
                 "- Which details should the AI avoid or never invent?",
-                "- Which English words or phrases do you already use comfortably for this theme?",
+                "- What is your broad opinion for related Part 3 questions in this scope?",
+                "- What example, comparison, or concession can support that opinion?",
                 "",
                 "Matching Part 2 prompts:",
             ]
         )
-        for prompt in story["part2_prompts"]:
-            lines.append(f"- {prompt}")
-        lines.extend(["", "Related Part 3 opinion inputs:", ""])
+        for prompt in story["matched_prompts"]:
+            cue_points = prompt.get("cue_points", [])
+            cue_text = f" Cue points: {'; '.join(cue_points)}" if cue_points else ""
+            lines.append(f"- {prompt.get('prompt', '')}{cue_text}")
+        lines.extend(["", "Related Part 3 questions this broad opinion can support:", ""])
         for question in story["part3_questions"]:
-            lines.extend(
-                [
-                    f"- Question: {question['question']}",
-                    "  - What is your natural opinion?",
-                    "  - What example or comparison can support it?",
-                ]
-            )
+            lines.append(f"- {question['question']}")
         lines.append("")
     return "\n".join(lines).strip() + "\n"

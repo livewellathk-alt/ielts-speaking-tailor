@@ -1,10 +1,20 @@
+import time
 from pathlib import Path
 
 import yaml
 from docx import Document
 
 from ielts_tailor.bank import import_bank_text
-from ielts_tailor.web import generate_answers, generate_sample_answers, load_web_state, save_profile_responses, save_result_markdown, save_settings
+from ielts_tailor.web import (
+    generate_answers,
+    generate_sample_answers,
+    get_generation_job,
+    load_web_state,
+    save_profile_responses,
+    save_result_markdown,
+    save_settings,
+    start_generation_job,
+)
 
 
 REALISTIC_BANK_TEXT = """
@@ -151,24 +161,28 @@ def realistic_responses() -> dict:
             "p1_music_q2": {"direct_answer": "In the evening", "example": "I listen while walking home."},
         },
         "umbrella_stories": {
-            "city_travel": {
+            "scope_places_visited_place": {
                 "story": "I visited Tokyo during a school break with my classmates.",
                 "details": "metro system, ramen shop, clean streets",
                 "lesson": "It made me appreciate organized public transport.",
                 "avoid": "Do not say I lived there.",
             },
-            "technology_media": {
+            "scope_objects_useful_object": {
                 "story": "I started using a study app before my final exams.",
                 "details": "flashcards, reminders, progress chart",
                 "lesson": "It helped me study more consistently.",
                 "avoid": "Do not mention gaming.",
             },
         },
-        "part3": {
-            "p2_1_p3_1": {"opinion": "Cities offer convenience.", "example": "Transport and food choices are easy to find."},
-            "p2_1_p3_2": {"opinion": "Natural places are quieter.", "example": "A mountain trip is calmer than shopping downtown."},
-            "p2_2_p3_1": {"opinion": "Technology saves time.", "example": "Apps help students organize revision."},
-            "p2_2_p3_2": {"opinion": "Teachers are better for feedback.", "example": "An app cannot always explain mistakes clearly."},
+        "part3_scope_defaults": {
+            "scope_places_visited_place": {
+                "opinion": "Cities offer convenience, but natural places are calmer.",
+                "example": "Tokyo was easy to navigate because the metro was clear.",
+            },
+            "scope_objects_useful_object": {
+                "opinion": "Technology saves time, but teachers are better for feedback.",
+                "example": "A study app helped me organize revision before exams.",
+            },
         },
     }
 
@@ -244,8 +258,10 @@ def test_load_web_state_includes_online_test_data_and_timing_targets(tmp_path: P
     assert state["word_targets"]["part2"]["max_words"] == 147
     assert state["word_targets"]["part3"]["words"] == 53
     assert state["questionnaire"]["part1"][0]["question"] == "Do you prefer sad or happy music?"
-    assert state["questionnaire"]["umbrella_stories"][0]["theme"] == "city_travel"
+    assert state["questionnaire"]["umbrella_stories"][0]["scope_id"] == "scope_places_visited_place"
+    assert state["questionnaire"]["umbrella_stories"][0]["scope_label"] == "Places: visited place"
     assert state["questionnaire"]["umbrella_stories"][0]["part2_prompts"] == ["Describe your favorite city that you have visited"]
+    assert state["questionnaire"]["umbrella_stories"][0]["why_reusable"]
     assert state["profile"]["name"] == "Alex"
     assert state["coverage"]["status"] == "资料不足"
     assert state["settings"]["speaking_speed_wpm"] == 80
@@ -258,14 +274,14 @@ def test_save_profile_responses_writes_editable_yaml(tmp_path: Path):
         config_path,
         {
             "part1": {"p1_music_q1": {"direct_answer": "Happy music", "example": "It helps me study."}},
-            "umbrella_stories": {"city_travel": {"story": "Tokyo trip", "details": ["metro", "food", "parks"]}},
+            "umbrella_stories": {"scope_places_visited_place": {"story": "Tokyo trip", "details": ["metro", "food", "parks"]}},
         },
     )
 
     saved = yaml.safe_load(path.read_text(encoding="utf-8"))
     assert path == tmp_path / "output" / "profile_responses.yaml"
     assert saved["part1"]["p1_music_q1"]["direct_answer"] == "Happy music"
-    assert saved["umbrella_stories"]["city_travel"]["story"] == "Tokyo trip"
+    assert saved["umbrella_stories"]["scope_places_visited_place"]["story"] == "Tokyo trip"
 
 
 def test_save_result_markdown_writes_editable_answers_file(tmp_path: Path):
@@ -351,3 +367,28 @@ def test_web_sample_and_full_generation_write_complete_outputs(tmp_path: Path, m
     assert "Do you prefer sad or happy music?" in doc_text
     assert "有用的软件" in doc_text
     assert "How has technology changed people's lives?" in doc_text
+
+
+def test_generation_job_exposes_stage_progress_and_final_state(tmp_path: Path, monkeypatch):
+    config_path = write_realistic_project(tmp_path)
+    save_profile_responses(config_path, realistic_responses())
+    monkeypatch.setattr("ielts_tailor.web.OpenAICompatibleClient", DeterministicClient)
+
+    job = start_generation_job(config_path, mode="sample")
+    deadline = time.time() + 5
+    status = get_generation_job(job["job_id"])
+    while status["status"] not in {"completed", "failed"} and time.time() < deadline:
+        time.sleep(0.05)
+        status = get_generation_job(job["job_id"])
+
+    assert status["status"] == "completed"
+    assert [event["stage"] for event in status["events"]] == [
+        "scope_analysis",
+        "style_guide",
+        "checkpoint_samples",
+        "answer_batch",
+        "quality_review",
+        "render_output",
+    ]
+    assert status["state"]["files"]["result_markdown_exists"] is False
+    assert Path(status["result"]["rendered"]["markdown"]).name == "ielts_speaking_sample.md"

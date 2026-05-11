@@ -105,6 +105,39 @@ def strong_responses():
     }
 
 
+def minimal_scope_responses():
+    return {
+        "part1": {
+            "p1_music_q1": {"direct_answer": "Happy music", "example": "It helps me focus before class."},
+            "p1_music_q2": {"direct_answer": "In the evening", "example": "I listen while walking home."},
+        },
+        "umbrella_stories": {
+            "scope_places_visited_place": {
+                "story": "I visited Tokyo during a school break with my classmates.",
+                "details": "metro system, ramen shop, clean streets",
+                "lesson": "It made me appreciate organized public transport.",
+                "avoid": "Do not say I lived there.",
+            },
+            "scope_objects_useful_object": {
+                "story": "I started using a study app before my final exams.",
+                "details": "flashcards, reminders, progress chart",
+                "lesson": "It helped me study more consistently.",
+                "avoid": "Do not mention gaming.",
+            },
+        },
+        "part3_scope_defaults": {
+            "scope_places_visited_place": {
+                "opinion": "Cities are convenient but can feel crowded.",
+                "example": "Tokyo was easy to explore because the metro was clear.",
+            },
+            "scope_objects_useful_object": {
+                "opinion": "Technology is useful when it saves time.",
+                "example": "A flashcard app helped me revise more consistently.",
+            },
+        },
+    }
+
+
 def write_project(tmp_path):
     data_dir = tmp_path / "data"
     output_dir = tmp_path / "output"
@@ -153,8 +186,8 @@ def test_coverage_flags_missing_inputs_with_chinese_followups():
     assert report["can_generate_sample"] is False
     assert report["can_generate_full"] is False
     assert any("请补充" in item for item in report["followups"])
-    assert any(item["theme"] == "city_travel" and item["status"] == "资料不足" for item in report["theme_reports"])
-    assert any(item["theme"] == "technology_media" and item["status"] == "资料不足" for item in report["theme_reports"])
+    assert any(item["theme"] == "scope_places_visited_place" and item["status"] == "资料不足" for item in report["theme_reports"])
+    assert any(item["theme"] == "scope_objects_useful_object" and item["status"] == "资料不足" for item in report["theme_reports"])
 
 
 def test_coverage_allows_sample_and_full_when_inputs_have_coverage_and_depth():
@@ -164,6 +197,18 @@ def test_coverage_allows_sample_and_full_when_inputs_have_coverage_and_depth():
     assert report["can_generate_sample"] is True
     assert report["can_generate_full"] is True
     assert report["status"] == "可以全量生成"
+
+
+def test_coverage_allows_full_generation_with_minimal_scope_defaults():
+    report = analyze_coverage(two_theme_bank(), minimal_scope_responses())
+
+    assert report["overall_percent"] >= 85
+    assert report["can_generate_sample"] is True
+    assert report["can_generate_full"] is True
+    assert {item["theme"] for item in report["theme_reports"]} == {
+        "scope_places_visited_place",
+        "scope_objects_useful_object",
+    }
 
 
 def test_coverage_allows_full_generation_for_imported_bank_ids(tmp_path):
@@ -204,15 +249,13 @@ def test_coverage_allows_full_generation_for_imported_bank_ids(tmp_path):
 
 
 def test_generation_profile_merges_browser_responses_into_student_profile():
-    profile = build_generation_profile(
-        {"name": "Alex", "stories": [{"id": "existing", "title": "Existing story"}]},
-        strong_responses(),
-    )
+    responses = minimal_scope_responses()
+    profile = build_generation_profile({"name": "Alex", "stories": [{"id": "existing", "title": "Existing story"}]}, responses)
 
     assert profile["name"] == "Alex"
     assert "browser_responses" in profile
-    assert any(story["id"] == "response_city_travel" for story in profile["stories"])
-    assert profile["theme_answers"]["technology_media"]["part3"]["p2_app_p3_1"]["opinion"] == "Technology saves time."
+    assert any(story["id"] == "response_scope_places_visited_place" for story in profile["stories"])
+    assert profile["theme_answers"]["scope_objects_useful_object"]["part3_default"]["opinion"] == "Technology is useful when it saves time."
     assert profile["speaking_preferences"]["avoid_topics"] == ["Do not say I lived there.", "Do not mention gaming."]
 
 

@@ -270,6 +270,29 @@ h3 {
   transition: width 180ms ease;
 }
 
+.generation-steps {
+  display: grid;
+  gap: 10px;
+  margin: 14px 0 0;
+  padding-left: 22px;
+}
+
+.generation-steps li {
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: white;
+}
+
+.generation-steps strong {
+  display: block;
+  margin-bottom: 4px;
+}
+
+.generation-steps span {
+  color: var(--muted);
+}
+
 .coverage-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));

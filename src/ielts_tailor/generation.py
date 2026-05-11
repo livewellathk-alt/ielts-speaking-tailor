@@ -3,7 +3,7 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Protocol
+from typing import Any, Callable, Protocol
 
 import yaml
 
@@ -13,6 +13,9 @@ from .strategy import cluster_part2_blocks, sort_blocks_for_study
 class LLMClient(Protocol):
     def complete_json(self, *, messages: list[dict[str, str]], schema_name: str, temperature: float) -> dict[str, Any]:
         ...
+
+
+ProgressCallback = Callable[[dict[str, Any]], None]
 
 
 @dataclass(frozen=True)
@@ -37,10 +40,18 @@ class GenerationConfig:
 
 
 class GenerationPipeline:
-    def __init__(self, *, client: LLMClient, config: GenerationConfig, reviewer_client: LLMClient | None = None):
+    def __init__(
+        self,
+        *,
+        client: LLMClient,
+        config: GenerationConfig,
+        reviewer_client: LLMClient | None = None,
+        progress_callback: ProgressCallback | None = None,
+    ):
         self.client = client
         self.reviewer_client = reviewer_client or client
         self.config = config
+        self.progress_callback = progress_callback
         self.cache_dir = config.output_dir / "cache"
         self.checkpoint_dir = config.output_dir / "checkpoints"
 
@@ -48,13 +59,22 @@ class GenerationPipeline:
         self.cache_dir.mkdir(parents=True, exist_ok=True)
         self.checkpoint_dir.mkdir(parents=True, exist_ok=True)
         prepared_bank = self._prepare_bank(bank)
+        self._emit(
+            "scope_analysis",
+            "Analyzed Part 2 prompt scopes and reusable story cards.",
+            part2_blocks=len(prepared_bank.get("part2_blocks", [])),
+            scope_count=len({block.get("scope_id") for block in prepared_bank.get("part2_blocks", [])}),
+        )
         style_guide = self._style_guide(prepared_bank, profile)
+        self._emit("style_guide", "Prepared the student style guide.")
         checkpoint_samples = None
         if self.config.checkpoint_mode:
             checkpoint_samples = self._checkpoint_samples(prepared_bank, profile, style_guide)
+            self._emit("checkpoint_samples", "Generated checkpoint calibration samples.")
         answers = self._answer_batches(prepared_bank, profile, style_guide, checkpoint_samples)
         self._validate_answer_completeness(prepared_bank, answers)
         review = self._quality_review(prepared_bank, profile, style_guide, answers)
+        self._emit("quality_review", "Reviewed answer quality and timing.")
         review["timing_issues"] = _timing_issues(answers, word_targets_for(self.config.speaking_speed_wpm, self.config.timing))
         if not review.get("passed", False):
             revision_bank, revision_answers, revision_ids = _revision_scope(prepared_bank, answers, review)
@@ -64,6 +84,7 @@ class GenerationPipeline:
                     answers = self._merge_revision(answers, revised)
                     review["revision_status"] = "revised"
                     review["revision_target_ids"] = sorted(revision_ids)
+                    self._emit("revision", "Revised answers flagged by quality review.", target_ids=sorted(revision_ids))
                 except Exception as exc:
                     review["revision_status"] = "failed_original_answers_kept"
                     review["revision_error"] = str(exc)
@@ -75,6 +96,7 @@ class GenerationPipeline:
                     revised = self._revised_answer_batch(prepared_bank, profile, style_guide, answers, review)
                     answers = self._merge_revision(answers, revised)
                     review["revision_status"] = "revised"
+                    self._emit("revision", "Revised answers flagged by quality review.")
                 except Exception as exc:
                     review["revision_status"] = "failed_original_answers_kept"
                     review["revision_error"] = str(exc)
@@ -90,6 +112,10 @@ class GenerationPipeline:
         }
         self._write_yaml(self.cache_dir / "generation_result.yaml", payload)
         return payload
+
+    def _emit(self, stage: str, message: str, **details: Any) -> None:
+        if self.progress_callback:
+            self.progress_callback({"stage": stage, "message": message, "details": details})
 
     def _prepare_bank(self, bank: dict[str, Any]) -> dict[str, Any]:
         prepared = dict(bank)
@@ -154,7 +180,9 @@ class GenerationPipeline:
     ) -> dict[str, Any]:
         blocks = bank.get("part2_blocks", [])
         if len(blocks) <= self.config.answer_batch_size:
-            return self._answer_batch(bank, profile, style_guide, checkpoint_samples)
+            result = self._answer_batch(bank, profile, style_guide, checkpoint_samples)
+            self._emit("answer_batch", "Generated answer batch 1/1.", batch_index=1, batch_total=1)
+            return result
 
         part1_result = self._answer_batch(
             _bank_slice(bank, part1_topics=bank.get("part1_topics", []), part2_blocks=[]),
@@ -163,6 +191,7 @@ class GenerationPipeline:
             checkpoint_samples,
         )
         merged = {"part1": part1_result.get("part1", []), "part2_blocks": []}
+        batch_total = (len(blocks) + self.config.answer_batch_size - 1) // self.config.answer_batch_size
         for start in range(0, len(blocks), self.config.answer_batch_size):
             chunk = blocks[start : start + self.config.answer_batch_size]
             chunk_result = self._answer_batch(
@@ -172,6 +201,14 @@ class GenerationPipeline:
                 checkpoint_samples,
             )
             merged["part2_blocks"].extend(chunk_result.get("part2_blocks", []))
+            batch_index = start // self.config.answer_batch_size + 1
+            self._emit(
+                "answer_batch",
+                f"Generated answer batch {batch_index}/{batch_total}.",
+                batch_index=batch_index,
+                batch_total=batch_total,
+                part2_blocks=[block.get("id") for block in chunk],
+            )
         return merged
 
     def _quality_review(
@@ -215,14 +252,19 @@ class GenerationPipeline:
                 "part3_seconds": self.config.timing.part3_seconds,
             },
             "word_targets": word_targets_for(self.config.speaking_speed_wpm, self.config.timing),
+            "part2_scope_cards": _scope_cards_from_payloads(payloads),
             "payloads": payloads,
         }
         return [
             {
                 "role": "system",
                 "content": (
-                    "You are an IELTS speaking answer architect. Use first principles: answer only bank questions, "
-                    "preserve one student voice, use Part 1 A+R/E, Part 2 umbrella stories, and Part 3 AREA variants. "
+                    "You are an IELTS speaking answer architect. Use first principles: first identify the real scope "
+                    "of each Part 2 cue card, map it to the closest supplied scope card, then decide how to adapt the "
+                    "student's reusable material. Answer only bank questions, preserve one student voice, use Part 1 "
+                    "A+R/E, Part 2 umbrella stories, and Part 3 AREA variants. IELTS answers may adapt one true story "
+                    "across compatible prompts, but must not invent personal facts. The supplied examples are pattern "
+                    "inspiration only; do not copy wording from examples verbatim. "
                     "Follow the supplied word_targets for spoken answer length. "
                     "Return valid JSON only."
                 ),
@@ -379,6 +421,41 @@ def word_targets_for(speaking_speed_wpm: int, timing: TimingConfig) -> dict[str,
 
 def _seconds_to_words(seconds: int, speaking_speed_wpm: int) -> int:
     return round(seconds * speaking_speed_wpm / 60)
+
+
+def _scope_cards_from_payloads(payloads: tuple[Any, ...]) -> list[dict[str, Any]]:
+    if not payloads or not isinstance(payloads[0], dict):
+        return []
+    cards: dict[str, dict[str, Any]] = {}
+    for block in payloads[0].get("part2_blocks", []):
+        scope_id = block.get("scope_id") or block.get("theme")
+        if not scope_id:
+            continue
+        card = cards.setdefault(
+            scope_id,
+            {
+                "scope_id": scope_id,
+                "scope_label": block.get("scope_label", scope_id),
+                "compatibility_tags": set(),
+                "why_reusable": block.get("why_reusable", ""),
+                "matched_prompts": [],
+            },
+        )
+        card["compatibility_tags"].update(block.get("compatibility_tags", []))
+        card["matched_prompts"].append(
+            {
+                "block_id": block.get("id", ""),
+                "prompt": block.get("part2", {}).get("prompt", ""),
+                "cue_points": block.get("part2", {}).get("cue_points", []),
+            }
+        )
+    return [
+        {
+            **card,
+            "compatibility_tags": sorted(card["compatibility_tags"]),
+        }
+        for card in cards.values()
+    ]
 
 
 def _schema_is_complete(schema_name: str, result: dict[str, Any]) -> bool:

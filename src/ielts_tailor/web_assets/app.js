@@ -3,6 +3,7 @@ const state = {
   questions: [],
   index: 0,
   saveTimer: null,
+  generationPoll: null,
 };
 
 const views = {
@@ -25,6 +26,16 @@ const themeLabels = {
   rules_society: "规则/社会",
   lifestyle_activity: "生活/活动",
   general_experience: "通用经历",
+};
+
+const progressLabels = {
+  scope_analysis: "分析题目范围",
+  style_guide: "整理学生风格",
+  checkpoint_samples: "生成校准样本",
+  answer_batch: "生成答案批次",
+  quality_review: "质量检查",
+  revision: "修订答案",
+  render_output: "生成文件",
 };
 
 document.querySelectorAll(".rail-item").forEach((button) => {
@@ -169,32 +180,35 @@ function buildQuestionList(questionnaire) {
     });
   });
   questionnaire.umbrella_stories.forEach((story) => {
+    const scopeId = story.scope_id || story.theme;
+    const scopeLabel = story.scope_label || themeLabels[story.theme] || story.theme.replaceAll("_", " ");
     questions.push({
       part: "Part 2",
-      key: story.theme,
+      key: scopeId,
       group: "umbrella_stories",
-      title: themeLabels[story.theme] || story.theme.replaceAll("_", " "),
-      prompt: `这些题可以共用一个伞状故事：${story.part2_prompts.join(" / ")}`,
+      title: scopeLabel,
+      prompt: `${story.why_reusable || "这些题可以共用一个真实素材。"} 相关题目：${story.part2_prompts.join(" / ")}`,
       fields: [
-        ["story", "真实可复用故事"],
+        ["story", "人物、物品、地点或事件"],
+        ["situation", "发生了什么或你通常怎么使用它"],
         ["details", "三个具体细节"],
         ["lesson", "感受、结果或收获"],
         ["avoid", "不要编造或不要提到的内容"],
       ],
     });
-    story.part3_questions.forEach((question) => {
+    if (story.part3_questions.length) {
       questions.push({
         part: "Part 3",
-        key: question.question_id,
-        group: "part3",
-        title: question.question,
-        prompt: "请写你的自然观点，并给一个例子、对比或让步。资料越具体，答案越像真人。",
+        key: scopeId,
+        group: "part3_scope_defaults",
+        title: `${scopeLabel} 的通用观点`,
+        prompt: `用一个宽松观点支持这些追问：${story.part3_questions.map((question) => question.question).join(" / ")}`,
         fields: [
-          ["opinion", "你的观点"],
-          ["example", "例子或对比"],
+          ["opinion", "你的通用观点"],
+          ["example", "例子、对比或让步"],
         ],
       });
-    });
+    }
   });
   return questions;
 }
@@ -306,33 +320,79 @@ async function saveResult() {
 }
 
 async function generateSampleAnswers() {
-  await generateAnswers("/api/generate-sample", "正在生成测试样本", "测试样本已生成");
+  await generateAnswers("sample", "正在生成测试样本", "测试样本已生成");
 }
 
 async function generateFullAnswers() {
-  await generateAnswers("/api/generate", "正在全量生成", "完整答案已生成");
+  await generateAnswers("full", "正在全量生成", "完整答案已生成");
 }
 
-async function generateAnswers(endpoint, loadingText, successText) {
+async function generateAnswers(mode, loadingText, successText) {
   setView("results");
   setStatus(loadingText, false);
   setGenerateDisabled(true);
-  const response = await fetch(endpoint, {
+  renderGenerationProgress({ status: "running", events: [] });
+  const response = await fetch("/api/generation-jobs", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({}),
+    body: JSON.stringify({ mode }),
   });
   const payload = await response.json();
-  setGenerateDisabled(false);
   if (!payload.ok) {
+    setGenerateDisabled(false);
     setStatus("资料不足", false);
     document.querySelector("#resultMarkdown").value = `资料不足，暂时不能生成。\n\n请补充：\n${payload.error}`;
     return;
   }
-  state.data = payload.state;
-  document.querySelector("#resultMarkdown").value = state.data.result_markdown || "";
-  renderCoverage();
-  setStatus(successText, true);
+  pollGenerationJob(payload.job_id, successText);
+}
+
+function pollGenerationJob(jobId, successText) {
+  window.clearInterval(state.generationPoll);
+  state.generationPoll = window.setInterval(async () => {
+    const response = await fetch(`/api/generation-jobs/${jobId}`);
+    const payload = await response.json();
+    renderGenerationProgress(payload);
+    if (payload.status === "running") {
+      return;
+    }
+    window.clearInterval(state.generationPoll);
+    setGenerateDisabled(false);
+    if (payload.status === "failed") {
+      setStatus("生成失败", false);
+      document.querySelector("#resultMarkdown").value = `生成失败。\n\n${payload.error}`;
+      return;
+    }
+    state.data = payload.state;
+    document.querySelector("#resultMarkdown").value = state.data.result_markdown || "";
+    renderCoverage();
+    setStatus(successText, true);
+  }, 700);
+}
+
+function renderGenerationProgress(job) {
+  const summary = document.querySelector("#generationProgressSummary");
+  const list = document.querySelector("#generationSteps");
+  const events = job.events || [];
+  summary.textContent =
+    job.status === "completed"
+      ? "生成完成，答案文件已经写入本地输出文件夹。"
+      : job.status === "failed"
+        ? `生成失败：${job.error || "请检查设置和输入素材。"}`
+        : "正在按阶段生成，完成前不会展示未校验的半成品答案。";
+  list.innerHTML = "";
+  if (!events.length) {
+    const item = document.createElement("li");
+    item.textContent = "等待后端开始处理";
+    list.appendChild(item);
+    return;
+  }
+  events.forEach((event) => {
+    const item = document.createElement("li");
+    const label = progressLabels[event.stage] || event.stage;
+    item.innerHTML = `<strong>${escapeHtml(label)}</strong><span>${escapeHtml(event.message || "")}</span>`;
+    list.appendChild(item);
+  });
 }
 
 function collectSettings() {

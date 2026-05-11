@@ -41,14 +41,14 @@ The CLI keeps intermediate artifacts explicit so large banks can be debugged and
 
 1. Import the PDF/text bank into normalized YAML.
 2. Preserve Part 2 blocks with their related Part 3 questions.
-3. Cluster Part 2 topics by reusable umbrella-story potential.
+3. Identify each Part 2 prompt's exam scope and group compatible prompts into reusable scope cards.
 4. Build a global style guide from the student profile.
 5. Generate checkpoint samples when enabled.
 6. Generate answers, review against IELTS descriptors and local frameworks, revise once, then render Markdown and DOCX.
 
-Run `profile-questions` before generation to create a questionnaire for the student. It asks for Part 1 facts and reusable Part 2 umbrella stories grouped by theme, plus related Part 3 opinions.
+Run `profile-questions` before generation to create a questionnaire for the student. It now groups Part 2 cue cards by exam scope first, so one flexible real story can cover compatible prompts such as an admired person, a great teacher, and an important influence. Part 3 uses broad scope-level opinion defaults instead of requiring every follow-up question up front.
 
-The web interface saves editable files under the configured output directory, including `profile_responses.yaml`, `ielts_speaking_answers.md`, and `ielts_speaking_answers.docx`.
+The web interface saves editable files under the configured output directory, including `profile_responses.yaml`, `ielts_speaking_answers.md`, and `ielts_speaking_answers.docx`. While generation runs, the Results view shows live stages for scope analysis, style guide, answer batches, quality review, and output rendering.
 
 ## Quality Controls
 
