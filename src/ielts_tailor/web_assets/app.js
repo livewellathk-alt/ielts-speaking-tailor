@@ -46,6 +46,7 @@ document.querySelector("#reloadButton").addEventListener("click", loadState);
 document.querySelector("#generateSampleButton").addEventListener("click", generateSampleAnswers);
 document.querySelector("#generateButton").addEventListener("click", generateFullAnswers);
 document.querySelector("#saveSettingsButton").addEventListener("click", saveSettings);
+document.querySelector("#saveProfileButton").addEventListener("click", saveStudentProfile);
 document.querySelector("#saveResultButton").addEventListener("click", saveResult);
 document.querySelector("#uploadBankButton").addEventListener("click", uploadQuestionBank);
 document.querySelector("#previousQuestion").addEventListener("click", () => moveQuestion(-1));
@@ -179,6 +180,7 @@ function renderPaths() {
 function renderProfile() {
   const profileGrid = document.querySelector("#profileGrid");
   profileGrid.innerHTML = "";
+  setInput("profileYamlInput", state.data.profile_yaml || "");
   [
     ["姓名", state.data.profile.name || "未填写"],
     ["身份", state.data.profile.current_status || "未填写"],
@@ -303,6 +305,24 @@ async function saveSettings() {
   state.data = payload.state;
   renderSetup();
   setStatus("设置已保存", true);
+}
+
+async function saveStudentProfile() {
+  setStatus("正在保存学生资料", false);
+  const response = await fetch("/api/student-profile", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ profile_yaml: valueOf("profileYamlInput") }),
+  });
+  const payload = await response.json();
+  if (!payload.ok) {
+    setStatus("学生资料保存失败", false);
+    return;
+  }
+  state.data = payload.state;
+  renderSetup();
+  renderCoverage();
+  setStatus("学生资料已保存", true);
 }
 
 async function saveResult() {

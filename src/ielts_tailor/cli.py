@@ -184,7 +184,7 @@ def _cmd_generate(args: argparse.Namespace) -> int:
             model=llm["reviewer_model"],
         )
     pipeline_config = GenerationConfig(
-        target_band=int(generation["target_band"]),
+        target_band=float(generation["target_band"]),
         answer_length=str(generation["answer_length"]),
         speaking_speed_wpm=int(generation["speaking_speed_wpm"]),
         timing=TimingConfig(

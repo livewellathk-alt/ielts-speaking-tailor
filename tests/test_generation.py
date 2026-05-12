@@ -169,7 +169,6 @@ def test_generation_pipeline_creates_style_checkpoint_review_revision_and_cache(
     assert result["answers"]["part2_blocks"][0]["part3"][0]["framework"] == "AREA-Alternative"
     assert result["answers"]["part2_blocks"][0]["part3"][0]["answer_en"].startswith("Answer:")
     assert [call["schema_name"] for call in client.calls] == [
-        "style_guide",
         "checkpoint_samples",
         "answer_batch",
         "quality_review",
@@ -178,7 +177,16 @@ def test_generation_pipeline_creates_style_checkpoint_review_revision_and_cache(
     assert all(call["temperature"] <= 0.3 for call in client.calls)
 
     style = yaml.safe_load((tmp_path / "cache" / "style_guide.yaml").read_text())
-    assert style["student_voice"].startswith("clear")
+    assert set(style) == {
+        "student_voice",
+        "target_band_rules",
+        "preferred_structures",
+        "lexical_boundaries",
+        "consistency_constraints",
+        "story_inventory",
+    }
+    assert "Alex" in style["student_voice"]
+    assert style["story_inventory"][0]["id"] == "city_trip"
 
 
 def test_word_targets_use_speaking_speed_and_timing_requirements():
@@ -246,23 +254,14 @@ def test_generation_pipeline_routes_quality_review_to_separate_reviewer(tmp_path
     GenerationPipeline(client=generator, reviewer_client=reviewer, config=config).run(bank=small_bank(), profile={"name": "Alex"})
 
     assert [call["schema_name"] for call in generator.calls] == [
-        "style_guide",
         "answer_batch",
         "revised_answer_batch",
     ]
     assert [call["schema_name"] for call in reviewer.calls] == ["quality_review"]
 
 
-class FlakyStyleGuideClient(FakeLLMClient):
-    def complete_json(self, *, messages, schema_name, temperature):
-        if schema_name == "style_guide" and not any(call["schema_name"] == "style_guide" for call in self.calls):
-            self.calls.append({"schema_name": schema_name, "messages": messages, "temperature": temperature})
-            return {"student_voice": "missing required fields"}
-        return super().complete_json(messages=messages, schema_name=schema_name, temperature=temperature)
-
-
-def test_generation_pipeline_retries_incomplete_schema_response(tmp_path: Path):
-    client = FlakyStyleGuideClient()
+def test_generation_pipeline_regenerates_local_style_guide_from_profile_changes(tmp_path: Path):
+    client = FakeLLMClient()
     config = GenerationConfig(
         target_band=7,
         answer_length="medium",
@@ -271,45 +270,58 @@ def test_generation_pipeline_retries_incomplete_schema_response(tmp_path: Path):
         output_dir=tmp_path,
     )
 
-    result = GenerationPipeline(client=client, config=config).run(bank=small_bank(), profile={"name": "Alex"})
+    GenerationPipeline(client=client, config=config).run(
+        bank=small_bank(),
+        profile={"name": "Alex", "stories": [{"id": "old_story", "title": "Old story"}]},
+    )
+    first_style = yaml.safe_load((tmp_path / "cache" / "style_guide.yaml").read_text())
 
-    assert result["style_guide"]["story_inventory"][0]["id"] == "story_city_trip"
-    assert [call["schema_name"] for call in client.calls].count("style_guide") == 2
+    GenerationPipeline(client=client, config=config).run(
+        bank=small_bank(),
+        profile={"name": "Maya", "stories": [{"id": "new_story", "title": "New story"}]},
+    )
+    second_style = yaml.safe_load((tmp_path / "cache" / "style_guide.yaml").read_text())
+
+    assert first_style["student_voice"] != second_style["student_voice"]
+    assert "Maya" in second_style["student_voice"]
+    assert second_style["story_inventory"][0]["id"] == "new_story"
+    assert "style_guide" not in [call["schema_name"] for call in client.calls]
 
 
-class NestedStyleGuideClient(FakeLLMClient):
-    def complete_json(self, *, messages, schema_name, temperature):
-        if schema_name == "style_guide":
-            self.calls.append({"schema_name": schema_name, "messages": messages, "temperature": temperature})
-            return {
-                "student_style_guide": {
-                    "student_profile": {"name": "Alex"},
-                    "part1_style": {"structure": "direct answer plus reason"},
-                    "part2_style": {"structure": "umbrella story with concrete details"},
-                    "part3_style": {"structure": "opinion plus example"},
-                    "umbrella_stories": {
-                        "city_travel": {"story": "Tokyo trip", "details": "metro, ramen, clean streets"},
-                    },
-                }
+def test_generation_pipeline_builds_local_style_guide_from_browser_response_stories(tmp_path: Path):
+    client = FakeLLMClient()
+    config = GenerationConfig(
+        target_band=6.5,
+        answer_length="medium",
+        speaking_speed_wpm=80,
+        checkpoint_mode=False,
+        output_dir=tmp_path,
+    )
+    profile = {
+        "name": "Alex",
+        "current_status": "student",
+        "hometown": "Hong Kong",
+        "speaking_preferences": {
+            "comfort_topics": ["study apps", "travel"],
+            "avoid_topics": ["Do not mention gaming."],
+        },
+        "stories": [
+            {
+                "id": "response_scope_places_visited_place",
+                "title": "Tokyo trip",
+                "details": "metro, ramen, clean streets",
+                "themes": ["scope_places_visited_place"],
             }
-        return super().complete_json(messages=messages, schema_name=schema_name, temperature=temperature)
+        ],
+    }
 
+    result = GenerationPipeline(client=client, config=config).run(bank=small_bank(), profile=profile)
 
-def test_generation_pipeline_normalizes_nested_style_guide_responses(tmp_path: Path):
-    client = NestedStyleGuideClient()
-    config = GenerationConfig(
-        target_band=7,
-        answer_length="medium",
-        speaking_speed_wpm=80,
-        checkpoint_mode=False,
-        output_dir=tmp_path,
-    )
-
-    result = GenerationPipeline(client=client, config=config).run(bank=small_bank(), profile={"name": "Alex"})
-
-    assert result["style_guide"]["student_voice"] == "Alex"
-    assert "direct answer plus reason" in result["style_guide"]["preferred_structures"]
-    assert result["style_guide"]["story_inventory"][0]["id"] == "city_travel"
+    assert "Alex" in result["style_guide"]["student_voice"]
+    assert any("6.5" in rule for rule in result["style_guide"]["target_band_rules"])
+    assert "study apps" in result["style_guide"]["lexical_boundaries"]
+    assert "Do not mention gaming." in result["style_guide"]["consistency_constraints"]
+    assert result["style_guide"]["story_inventory"][0]["id"] == "response_scope_places_visited_place"
 
 
 class DirectCheckpointSamplesClient(FakeLLMClient):

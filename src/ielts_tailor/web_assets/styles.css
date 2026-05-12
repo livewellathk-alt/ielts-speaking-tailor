@@ -239,7 +239,8 @@ h3 {
   font-weight: 700;
 }
 
-.settings-grid input {
+.settings-grid input,
+.yaml-editor {
   min-height: 42px;
   width: 100%;
   border: 1px solid var(--line);
@@ -368,6 +369,15 @@ h3 {
 .profile-grid {
   display: grid;
   gap: 10px;
+  margin-bottom: 14px;
+}
+
+.yaml-editor {
+  min-height: 260px;
+  padding: 12px;
+  resize: vertical;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  line-height: 1.45;
 }
 
 .poll-panel {

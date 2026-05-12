@@ -79,7 +79,7 @@
               <button class="primary-button" id="saveSettingsButton" type="button">保存设置</button>
             </div>
             <div class="settings-grid">
-              <label>目标分数<input id="targetBandInput" type="number" min="5" max="9" /></label>
+              <label>目标分数<input id="targetBandInput" type="number" min="5" max="9" step="0.5" /></label>
               <label>语速 WPM<input id="wpmInput" type="number" min="50" max="180" /></label>
               <label>Part 1 秒数<input id="part1SecondsInput" type="number" min="8" max="40" /></label>
               <label>Part 2 最短秒数<input id="part2MinSecondsInput" type="number" min="60" max="150" /></label>
@@ -114,8 +114,15 @@
             <dl class="path-list" id="pathList"></dl>
           </div>
           <div class="plain-panel">
-            <h3>学生资料</h3>
+            <div class="result-header">
+              <div>
+                <h3>学生资料</h3>
+                <p>直接编辑 student_profile.yaml，用来控制姓名、身份、家乡和个人经历。</p>
+              </div>
+              <button class="primary-button" id="saveProfileButton" type="button">保存学生资料</button>
+            </div>
             <div class="profile-grid" id="profileGrid"></div>
+            <textarea id="profileYamlInput" class="yaml-editor" spellcheck="false"></textarea>
           </div>
         </section>
 
