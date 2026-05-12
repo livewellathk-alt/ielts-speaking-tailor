@@ -59,7 +59,8 @@ def load_web_state(config_path: str | Path) -> dict[str, Any]:
     sample_result_path = output_dir / "ielts_speaking_sample.md"
     responses_path = output_dir / "profile_responses.yaml"
     bank = load_question_bank(bank_path) if bank_path.exists() else {"part1_topics": [], "part2_blocks": []}
-    profile = yaml.safe_load(profile_path.read_text(encoding="utf-8")) if profile_path.exists() else {}
+    profile_yaml = profile_path.read_text(encoding="utf-8") if profile_path.exists() else ""
+    profile = yaml.safe_load(profile_yaml) if profile_yaml else {}
     responses = yaml.safe_load(responses_path.read_text(encoding="utf-8")) if responses_path.exists() else {}
     questionnaire = build_questionnaire_model(bank)
     coverage = analyze_coverage(bank, responses or {})
@@ -86,6 +87,7 @@ def load_web_state(config_path: str | Path) -> dict[str, Any]:
             "sample_markdown_exists": sample_result_path.exists(),
         },
         "profile": profile or {},
+        "profile_yaml": profile_yaml,
         "responses": responses or {},
         "questionnaire": questionnaire,
         "poll_progress": _poll_progress(questionnaire, responses or {}),
@@ -114,13 +116,27 @@ def save_result_markdown(config_path: str | Path, markdown: str) -> Path:
     return path
 
 
+def save_student_profile(config_path: str | Path, profile_yaml: str) -> Path:
+    root, _config, paths = _load_config(config_path)
+    try:
+        profile = yaml.safe_load(profile_yaml) if profile_yaml.strip() else {}
+    except yaml.YAMLError as exc:
+        raise ValueError(f"student profile YAML is invalid: {exc}") from exc
+    if not isinstance(profile, dict):
+        raise ValueError("student profile YAML must be a mapping")
+    path = root / paths["student_profile"]
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(yaml.safe_dump(profile, sort_keys=False, allow_unicode=True), encoding="utf-8")
+    return path
+
+
 def save_settings(config_path: str | Path, settings: dict[str, Any]) -> Path:
     config_path = Path(config_path).resolve()
     config = yaml.safe_load(config_path.read_text(encoding="utf-8"))
     generation = config.setdefault("generation", {})
     timing = generation.setdefault("timing", {})
     llm = config.setdefault("llm", {})
-    _set_int(generation, "target_band", settings)
+    _set_number(generation, "target_band", settings)
     _set_int(generation, "speaking_speed_wpm", settings)
     _set_int(timing, "part1_seconds", settings)
     _set_int(timing, "part2_min_seconds", settings)
@@ -330,7 +346,7 @@ def _run_generation(
             model=llm["reviewer_model"],
         )
     pipeline_config = GenerationConfig(
-        target_band=int(generation["target_band"]),
+        target_band=float(generation["target_band"]),
         answer_length=str(generation["answer_length"]),
         speaking_speed_wpm=int(generation.get("speaking_speed_wpm", 80)),
         timing=_timing_from_config(generation.get("timing", {})),
@@ -412,7 +428,7 @@ def _settings_from_config(config: dict[str, Any]) -> dict[str, Any]:
     timing = generation.get("timing", {})
     llm = config.get("llm", {})
     return {
-        "target_band": int(generation.get("target_band", 7)),
+        "target_band": _number_value(generation.get("target_band", 7)),
         "speaking_speed_wpm": int(generation.get("speaking_speed_wpm", 80)),
         "part1_seconds": int(timing.get("part1_seconds", 15)),
         "part2_min_seconds": int(timing.get("part2_min_seconds", 100)),
@@ -428,6 +444,16 @@ def _settings_from_config(config: dict[str, Any]) -> dict[str, Any]:
 def _set_int(target: dict[str, Any], key: str, source: dict[str, Any]) -> None:
     if key in source:
         target[key] = int(source[key])
+
+
+def _set_number(target: dict[str, Any], key: str, source: dict[str, Any]) -> None:
+    if key in source:
+        target[key] = _number_value(source[key])
+
+
+def _number_value(value: Any) -> int | float:
+    number = float(value)
+    return int(number) if number.is_integer() else number
 
 
 def _merged_profile(root: Path, paths: dict[str, str], responses: dict[str, Any]) -> dict[str, Any]:
@@ -516,6 +542,10 @@ def _handler_for(config_path: Path) -> type[SimpleHTTPRequestHandler]:
                     return
                 if route == "/api/result-markdown":
                     path = save_result_markdown(config_path, str(payload.get("markdown", "")))
+                    self._send_json({"ok": True, "path": str(path), "state": load_web_state(config_path)})
+                    return
+                if route == "/api/student-profile":
+                    path = save_student_profile(config_path, str(payload.get("profile_yaml", "")))
                     self._send_json({"ok": True, "path": str(path), "state": load_web_state(config_path)})
                     return
                 if route == "/api/settings":

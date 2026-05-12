@@ -28,7 +28,7 @@ class TimingConfig:
 
 @dataclass(frozen=True)
 class GenerationConfig:
-    target_band: int
+    target_band: float
     answer_length: str
     speaking_speed_wpm: int
     output_dir: Path
@@ -124,14 +124,7 @@ class GenerationPipeline:
 
     def _style_guide(self, bank: dict[str, Any], profile: dict[str, Any]) -> dict[str, Any]:
         path = self.cache_dir / "style_guide.yaml"
-        if path.exists():
-            return yaml.safe_load(path.read_text(encoding="utf-8"))
-        result = self._complete_schema(
-            self.client,
-            messages=self._messages("Create a durable student style guide.", bank, profile),
-            schema_name="style_guide",
-            temperature=self.config.temperature,
-        )
+        result = _build_local_style_guide(bank, profile, self.config.target_band)
         self._write_yaml(path, result)
         return result
 
@@ -462,6 +455,89 @@ def _scope_cards_from_payloads(payloads: tuple[Any, ...]) -> list[dict[str, Any]
 def _schema_is_complete(schema_name: str, result: dict[str, Any]) -> bool:
     required = REQUIRED_SCHEMA_KEYS.get(schema_name, set())
     return required.issubset(result.keys())
+
+
+def _build_local_style_guide(bank: dict[str, Any], profile: dict[str, Any], target_band: float) -> dict[str, Any]:
+    name = _clean_text(profile.get("name")) or "the student"
+    status = _clean_text(profile.get("current_status"))
+    hometown = _clean_text(profile.get("hometown"))
+    identity_parts = [name]
+    if status:
+        identity_parts.append(status)
+    if hometown:
+        identity_parts.append(f"from {hometown}")
+    preferences = profile.get("speaking_preferences", {}) if isinstance(profile.get("speaking_preferences"), dict) else {}
+    comfort_topics = _string_list(preferences.get("comfort_topics"))
+    avoid_topics = _string_list(preferences.get("avoid_topics"))
+    scope_labels = [
+        _clean_text(block.get("scope_label") or block.get("scope_id") or block.get("theme"))
+        for block in bank.get("part2_blocks", [])
+    ]
+    scope_labels = [label for label in dict.fromkeys(scope_labels) if label]
+    lexical_boundaries = comfort_topics or ["natural spoken IELTS vocabulary"]
+    consistency_constraints = [
+        "Do not invent personal facts beyond the supplied profile and questionnaire responses.",
+        *avoid_topics,
+    ]
+    if scope_labels:
+        consistency_constraints.append(f"Reuse provided story material across compatible scopes: {', '.join(scope_labels)}.")
+    return {
+        "student_voice": f"{', '.join(identity_parts)}; clear, personal, and natural spoken IELTS style.",
+        "target_band_rules": [
+            f"Aim for IELTS band {_format_band(target_band)}.",
+            "Answer directly before adding a concrete reason, example, or contrast.",
+            "Use flexible but comfortable language instead of memorised or over-formal phrasing.",
+        ],
+        "preferred_structures": [
+            "Part 1: direct answer plus reason or example.",
+            "Part 2: one reusable true story with concrete details and a clear result.",
+            "Part 3: answer, reason, example, and alternative or consequence when useful.",
+        ],
+        "lexical_boundaries": lexical_boundaries,
+        "consistency_constraints": consistency_constraints,
+        "story_inventory": _local_story_inventory(profile),
+    }
+
+
+def _local_story_inventory(profile: dict[str, Any]) -> list[dict[str, Any]]:
+    stories = profile.get("stories", [])
+    if not isinstance(stories, list):
+        return []
+    inventory = []
+    for index, story in enumerate(stories, start=1):
+        if not isinstance(story, dict):
+            continue
+        story_id = _clean_text(story.get("id")) or f"profile_story_{index}"
+        inventory.append(
+            {
+                "id": story_id,
+                "title": _clean_text(story.get("title")) or story_id,
+                "themes": _string_list(story.get("themes")),
+                "details": _clean_text(story.get("details") or story.get("detail")),
+            }
+        )
+    return inventory
+
+
+def _format_band(value: float) -> str:
+    return str(int(value)) if float(value).is_integer() else str(value)
+
+
+def _clean_text(value: Any) -> str:
+    if value is None:
+        return ""
+    return str(value).strip()
+
+
+def _string_list(value: Any) -> list[str]:
+    if isinstance(value, list):
+        return [str(item).strip() for item in value if str(item).strip()]
+    if isinstance(value, str):
+        normalized = value
+        for separator in ["，", "、", ";", "；", "\n"]:
+            normalized = normalized.replace(separator, ",")
+        return [item.strip() for item in normalized.split(",") if item.strip()]
+    return []
 
 
 def _normalize_schema_response(schema_name: str, result: dict[str, Any]) -> dict[str, Any]:

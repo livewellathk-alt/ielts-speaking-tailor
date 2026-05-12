@@ -14,6 +14,7 @@ from ielts_tailor.web import (
     save_profile_responses,
     save_result_markdown,
     save_settings,
+    save_student_profile,
     start_generation_job,
 )
 
@@ -254,6 +255,7 @@ def test_load_web_state_includes_online_test_data_and_timing_targets(tmp_path: P
     assert state["poll_progress"]["answered"] == 0
     assert state["poll_progress"]["percent"] == 0
     assert state["profile"]["name"] == "Alex"
+    assert "name: Alex" in state["profile_yaml"]
     assert state["coverage"]["status"] == "资料不足"
     assert state["settings"]["speaking_speed_wpm"] == 80
 
@@ -330,13 +332,54 @@ def test_save_result_markdown_writes_editable_answers_file(tmp_path: Path):
     assert path.read_text(encoding="utf-8").startswith("# Edited IELTS Answers")
 
 
+def test_save_student_profile_updates_yaml_and_state(tmp_path: Path):
+    config_path = write_project(tmp_path)
+
+    path = save_student_profile(
+        config_path,
+        """
+name: Maya
+current_status: designer
+hometown: Shenzhen
+speaking_preferences:
+  comfort_topics:
+    - design
+  avoid_topics:
+    - Do not mention old school.
+stories: []
+""",
+    )
+
+    saved = yaml.safe_load(path.read_text(encoding="utf-8"))
+    state = load_web_state(config_path)
+    assert path == tmp_path / "student_profile.yaml"
+    assert saved["name"] == "Maya"
+    assert state["profile"]["current_status"] == "designer"
+    assert "hometown: Shenzhen" in state["profile_yaml"]
+
+
+def test_save_student_profile_rejects_invalid_yaml_and_non_mapping(tmp_path: Path):
+    config_path = write_project(tmp_path)
+
+    for profile_yaml in ["name: [", "- just\n- a list\n"]:
+        try:
+            save_student_profile(config_path, profile_yaml)
+        except ValueError as exc:
+            assert str(exc)
+        else:
+            raise AssertionError("Expected invalid student profile YAML to fail")
+
+    profile = yaml.safe_load((tmp_path / "student_profile.yaml").read_text(encoding="utf-8"))
+    assert profile["name"] == "Alex"
+
+
 def test_save_settings_updates_config_yaml_for_nontechnical_ui(tmp_path: Path):
     config_path = write_project(tmp_path)
 
     save_settings(
         config_path,
         {
-            "target_band": 8,
+            "target_band": 6.5,
             "speaking_speed_wpm": 90,
             "part1_seconds": 18,
             "part2_min_seconds": 105,
@@ -349,7 +392,7 @@ def test_save_settings_updates_config_yaml_for_nontechnical_ui(tmp_path: Path):
     )
 
     config = yaml.safe_load(config_path.read_text(encoding="utf-8"))
-    assert config["generation"]["target_band"] == 8
+    assert config["generation"]["target_band"] == 6.5
     assert config["generation"]["speaking_speed_wpm"] == 90
     assert config["generation"]["timing"]["part1_seconds"] == 18
     assert config["generation"]["timing"]["part2_min_seconds"] == 105
@@ -368,8 +411,12 @@ def test_web_assets_are_chinese_first():
     assert "雅思口语定制器" in html
     assert "设置" in html
     assert "生成测试样本" in html
+    assert 'id="targetBandInput" type="number" min="5" max="9" step="0.5"' in html
+    assert 'id="profileYamlInput"' in html
+    assert 'id="saveProfileButton"' in html
     assert "资料不足" in app
     assert "请补充" in app
+    assert "/api/student-profile" in app
     assert 'group: "part1"' not in app
     assert 'group: "part3_scope_defaults"' not in app
     assert "一套素材生成 Part 2、Part 3 和 Part 1" in app
